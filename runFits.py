@@ -161,19 +161,7 @@ args = parser.parse_args()
 isJ = args.isJ
 runCalibration = args.runCalibration
 fitMCtruth = args.fitMCtruth
-
-
-fileJ = open("calInputJMC_48etaBins_5ptBins.pkl", "rb")
-pkgJ = pickle.load(fileJ)
-
-datasetJ = pkgJ['dataset']
-etas = pkgJ['edges'][0]
-ptsJ = pkgJ['edges'][2]
-massesJ = pkgJ['edges'][-1]
-binCenters1J = pkgJ['binCenters1']
-binCenters2J = pkgJ['binCenters2']
-good_idxJ = pkgJ['good_idx']
-
+"""
 fileZ = open("calInputZMC_48etaBins_5ptBins.pkl", "rb")
 pkgZ = pickle.load(fileZ)
 
@@ -184,40 +172,59 @@ massesZ = pkgZ['edges'][-1]
 binCenters1Z = pkgZ['binCenters1']
 binCenters2Z = pkgZ['binCenters2']
 good_idxZ = pkgZ['good_idx']
-
+"""
 if isJ:
+    fileJ = open("calInputJDATA_48etaBins_5ptBins.pkl", "rb")
+    pkgJ = pickle.load(fileJ)
+
+    datasetJ = pkgJ['dataset']
+    etas = pkgJ['edges'][0]
+    ptsJ = pkgJ['edges'][2]
+    massesJ = pkgJ['edges'][-1]
+    binCenters1J = pkgJ['binCenters1']
+    binCenters2J = pkgJ['binCenters2']
+    good_idxJ = pkgJ['good_idx']
     dataset = datasetJ
     pts = ptsJ
+
     masses = massesJ
     binCenters1 = binCenters1J
     binCenters2 = binCenters2J
     good_idx= good_idxJ
 
+    filegen = open("calInput{}MCgen_48etaBins_5ptBins.pkl".format('J' if isJ else 'Z'), "rb")
+    datasetgen = pickle.load(filegen)
+
+
 if fitMCtruth:
-    fileJ = open("calInputJMCtruth_48etaBins_30ptBins.pkl", "rb")
+    fileJ = open("calInputJMCtruth_48etaBins_20ptBins.pkl", "rb")
     pkgJtruth = pickle.load(fileJ)
     datasetJ = pkgJtruth['dataset']
+    ptsJ = pkgJtruth['edges'][1]
     
-    fileZ = open("calInputZMCtruth_48etaBins_30ptBins.pkl", "rb")
+    fileZ = open("calInputZMCtruth_48etaBins_80ptBins.pkl", "rb")
     pkgZtruth = pickle.load(fileZ)
     datasetZ = pkgZtruth['dataset']
+    ptsZ = pkgZtruth['edges'][1]
 
     #merge datasets and pts
-    #dataset = np.concatenate((datasetJ,datasetZ), axis=0)
-    #pts = np.concatenate((ptsJ,ptsZ),axis=0)
-    #masses = pkgJtruth['edges'][-1]
-
-    #good_idxJ = pkgJtruth['good_idx']
-    #good_idxZ = pkgZtruth['good_idx']
-    #total = good_idxJ + good_idxZ
-    #print len(total), total[0].shape,total[3].shape
-    #good_idx =(np.concatenate((total[0],total[2]),axis=0),np.concatenate((total[1],total[3]),axis=0))
-    #binCenters = np.concatenate((pkgJtruth['binCenters'],pkgZtruth['binCenters']),axis=0)
-    dataset = datasetJ
+    dataset = np.concatenate((datasetJ,datasetZ), axis=0)
+    pts = np.concatenate((ptsJ,ptsZ),axis=0)
+    etas = pkgJtruth['edges'][0]
     masses = pkgJtruth['edges'][-1]
-    good_idx = pkgJtruth['good_idx']
-    binCenters = pkgJtruth['binCenters']
-    pts = pkgJtruth['edges'][1]
+
+    good_idxJ = pkgJtruth['good_idx']
+    good_idxZ = pkgZtruth['good_idx']
+    total = good_idxJ + good_idxZ
+    print len(total), total[0].shape,total[3].shape
+    good_idx =(np.concatenate((total[0],total[2]),axis=0),np.concatenate((total[1],total[3]),axis=0))
+    binCenters = np.concatenate((pkgJtruth['binCenters'],pkgZtruth['binCenters']),axis=0)
+    #dataset = datasetJ
+    #masses = pkgJtruth['edges'][-1]
+    #good_idx = pkgJtruth['good_idx']
+    #binCenters = pkgJtruth['binCenters']
+    #pts = pkgJtruth['edges'][1]
+    #etas = pkgJtruth['edges'][0]
 
 
 nEtaBins = len(etas)-1
@@ -226,9 +233,6 @@ nBins = dataset.shape[0]
 
 print(pts)
 print(nBins)
-
-filegen = open("calInput{}MCgen_48etaBins_5ptBins.pkl".format('J' if isJ else 'Z'), "rb")
-datasetgen = pickle.load(filegen)
 
 scale = np.ones((nBins,),dtype='float64')
 sigma = 6e-3*np.ones((nBins,),dtype='float64')
@@ -263,19 +267,20 @@ if fitMCtruth:
     hScaleSqSigmaSqBinned, hCovScaleSqSigmaSqBinned = fh(xres,dataset,)
 
 else:
-    xscale = np.stack([scale,sigma],axis=-1)
+    xscale = np.stack([scale,sigma,fbkg,slope],axis=-1)
     xscale = np.zeros_like(xscale)
-    nllBinspartial = functools.partial(nllBinsFromSignalBinPars,masses=masses)
+    #nllBinspartial = functools.partial(nllBinsFromSignalBinPars,masses=masses)
+    nllBinspartial = functools.partial(nllBinsFromBinPars,masses=masses)
     #parallel fit for scale, sigma, fbkg, slope in bins
-    xres = pmin(nllBinspartial, xscale, args=(fbkg, slope,dataset,datasetgen))
+    xres = pmin(nllBinspartial, xscale, args=(dataset,datasetgen))
     #xres = xscale
 
     #compute covariance matrices of scale and sigma from binned fit
-    def hnll(x,fbkg, slope,dataset,datasetgen):
+    def hnll(x, dataset,datasetgen):
         #compute the hessian wrt internal fit parameters in each bin
         hess = jax.hessian(nllBinspartial)
         #invert to get the hessian
-        cov = np.linalg.inv(hess(x,fbkg, slope,dataset,datasetgen))
+        cov = np.linalg.inv(hess(x,dataset,datasetgen))
         #compute the jacobian for scale and sigma squared wrt internal fit parameters
         jacscalesq, jacsigmasq = jax.jacfwd(scaleSqSigmaSqFromBinsPars)(x)
         jac = np.stack((jacscalesq,jacsigmasq),axis=-1)
@@ -285,9 +290,9 @@ else:
         hscalesigmasq = np.linalg.inv(covscalesigmasq)
         return hscalesigmasq, covscalesigmasq
     fh = jax.jit(jax.vmap(hnll))
-    hScaleSqSigmaSqBinned, hCovScaleSqSigmaSqBinned = fh(xres,fbkg, slope,dataset,datasetgen)
+    hScaleSqSigmaSqBinned, hCovScaleSqSigmaSqBinned = fh(xres,dataset,datasetgen)
 
-#fbkg, slope = bkgModelFromBinPars(xres)
+fbkg, slope = bkgModelFromBinPars(xres)
 
 scaleSqBinned, sigmaSqBinned = scaleSqSigmaSqFromBinsPars(xres)
 
@@ -307,9 +312,18 @@ print(sigmaBinned, '+/-', sigmaErrorBinned)
 
 ###### begin paramters fit
 
-nModelParms = 5
+nModelParms = 7
 
-xmodel = np.zeros((nEtaBins,nModelParms),dtype=np.float64)
+A = np.zeros((nEtaBins),dtype=np.float64)
+e = np.zeros((nEtaBins),dtype=np.float64)
+M = np.zeros((nEtaBins),dtype=np.float64)
+W = np.zeros((nEtaBins),dtype=np.float64)
+a = 1e-6*np.ones((nEtaBins),dtype=np.float64)
+c = 10e-9*np.ones((nEtaBins),dtype=np.float64)
+b = np.zeros((nEtaBins),dtype=np.float64)
+d = 3.7*np.ones((nEtaBins),dtype=np.float64)
+
+xmodel = np.stack((A,e,M,W,a,c,b),axis=-1)
 
 if fitMCtruth:
     chi2 = chi2LBins(xmodel, scaleSqBinned, sigmaSqBinned, hScaleSqSigmaSqBinned, etas,binCenters,good_idx)
@@ -353,10 +367,10 @@ print("chi2/dof = %f/%d = %f" % (2*valmodel,ndof,2*valmodel/float(ndof)))
 
 errsmodel = np.sqrt(np.diag(covmodel)).reshape((nEtaBins,nModelParms))
 
-A,e,M,a,b,c,d = modelParsFromParVector(xmodel)
+A,e,M,W,a,b,c,d = modelParsFromParVector(xmodel)
 
 if fitMCtruth:
-    scaleSqModel = scaleSqFromModelParsSingleMu(A, e, M, etas, binCenters, good_idx)
+    scaleSqModel = scaleSqFromModelParsSingleMu(A, e, M, W, etas, binCenters, good_idx)
     sigmaSqModel = sigmaSqFromModelParsSingleMu(a, b, c, d, etas, binCenters, good_idx)
 else:
     scaleSqModel = scaleSqFromModelPars(A, e, M, etas, binCenters1, binCenters2, good_idx)
@@ -382,10 +396,10 @@ plt.pcolor(corr, cmap='jet', vmin=-1, vmax=1)
 plt.colorbar()
 plt.savefig("corrMC.pdf")
 
-if fitMCtruth:
-    plotsSingleMu(scaleBinned,sigmaBinned,dataset,masses)
-else:
-    plotsBkg(scaleBinned,sigmaBinned,fbkg,slope,dataset,datasetgen,masses,isJ,etas, binCenters1, binCenters2, good_idx)
+#if fitMCtruth:
+    #plotsSingleMu(scaleBinned,sigmaBinned,dataset,masses)
+#else:
+    #plotsBkg(scaleBinned,sigmaBinned,fbkg,slope,dataset,datasetgen,masses,isJ,etas, binCenters1, binCenters2, good_idx)
 
 print("computing scales and errors:")
 
@@ -394,15 +408,17 @@ ndata = np.sum(dataset,axis=-1)
 Aerr = errsmodel[:,0]
 eerr = errsmodel[:,1]
 Merr = errsmodel[:,2]
-aerr = errsmodel[:,3]
-cerr = errsmodel[:,4]
-berr = errsmodel[:,5]
-derr = errsmodel[:,6]
+Werr = errsmodel[:,3]
+aerr = errsmodel[:,4]
+cerr = errsmodel[:,5]
+berr = errsmodel[:,6]
+derr = errsmodel[:,7]
 
 etaarr = onp.array(etas.tolist())
 hA = ROOT.TH1D("A", "A", nEtaBins, etaarr)
 he = ROOT.TH1D("e", "e", nEtaBins, etaarr)
 hM = ROOT.TH1D("M", "M", nEtaBins, etaarr)
+hW = ROOT.TH1D("W", "W", nEtaBins, etaarr)
 ha = ROOT.TH1D("a", "a", nEtaBins, etaarr)
 hc = ROOT.TH1D("c", "c", nEtaBins, etaarr)
 hb = ROOT.TH1D("b", "b", nEtaBins, etaarr)
@@ -411,6 +427,7 @@ hd = ROOT.TH1D("d", "d", nEtaBins, etaarr)
 hA = array2hist(A, hA, Aerr)
 he = array2hist(e, he, eerr)
 hM = array2hist(M, hM, Merr)
+hW = array2hist(W, hW, Werr)
 ha = array2hist(a, ha, aerr)
 hc = array2hist(c, hc, cerr)
 hb = array2hist(b, hb, berr)
@@ -419,12 +436,14 @@ hd = array2hist(d, hd, derr)
 hA.GetYaxis().SetTitle('b field correction')
 he.GetYaxis().SetTitle('material correction')
 hM.GetYaxis().SetTitle('alignment correction')
+hW.GetYaxis().SetTitle('charge-independent unknown correction')
 ha.GetYaxis().SetTitle('material correction (resolution) a^2')
 hc.GetYaxis().SetTitle('hit position (resolution) c^2')
 
 hA.GetXaxis().SetTitle('#eta')
 he.GetXaxis().SetTitle('#eta')
 hM.GetXaxis().SetTitle('#eta')
+hW.GetXaxis().SetTitle('#eta')
 ha.GetXaxis().SetTitle('#eta')
 hc.GetXaxis().SetTitle('#eta')
 
@@ -473,6 +492,7 @@ f.cd()
 hA.Write()
 he.Write()
 hM.Write()
+hW.Write()
 ha.Write()
 hc.Write()
 hb.Write()
