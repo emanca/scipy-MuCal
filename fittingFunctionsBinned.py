@@ -170,8 +170,8 @@ def scaleSqFromModelParsSingleMu(A, e, M, W, etas, binCenters1, good_idx):
     coeffe1 = binCenters1[...,1]
     coeffM1 = binCenters1[...,0]
     
-    term1 = A[good_idx[0]]-e[good_idx[0]]*coeffe1+M[good_idx[0]]*coeffM1 + W[good_idx[0]]*np.abs(coeffM1)
-    #term1 = (A[good_idx[0]]-1.)+np.reciprocal(1+e[good_idx[0]]*coeffe1)+M[good_idx[0]]*coeffM1
+    #term1 = A[good_idx[0]]-e[good_idx[0]]*coeffe1+M[good_idx[0]]*coeffM1 + W[good_idx[0]]*np.abs(coeffM1)
+    term1 = (A[good_idx[0]]-1.)+np.reciprocal(1+e[good_idx[0]]*coeffe1)+M[good_idx[0]]*coeffM1 + W[good_idx[0]]*np.abs(coeffM1)
     
     scaleSq = np.square(1.-term1)
         
@@ -280,19 +280,17 @@ def chi2SumBins(x, binScaleSq, binSigmaSq, covScaleSqSigmaSq, etas, binCenters1,
                         
 
 def modelParsFromParVector(x):
-    x = x.reshape((-1,7))
+    x = x.reshape((-1,8))
     
     A = x[...,0]
     e = x[...,1]
     M = x[...,2]
-    W = x[...,4]
+    W = x[...,3]
     a = x[...,4]
     c = x[...,5]
     b = x[...,6]
-    #d = x[...,7]
+    d = x[...,7]
 
-    d = 137*np.zeros_like(A)
-    
     return A,e,M,W,a,b,c,d
 
 def scaleSigmaFromModelParVector(x, etas, binCenters1, binCenters2, good_idx):

@@ -310,9 +310,9 @@ sigmaErrorBinned = 0.5*sigmaSqErrorBinned/sigmaBinned
 print(scaleBinned, '+/-', scaleErrorBinned)
 print(sigmaBinned, '+/-', sigmaErrorBinned)
 
-###### begin paramters fit
+###### begin parameters fit
 
-nModelParms = 7
+nModelParms = 8
 
 A = np.zeros((nEtaBins),dtype=np.float64)
 e = np.zeros((nEtaBins),dtype=np.float64)
@@ -323,7 +323,7 @@ c = 10e-9*np.ones((nEtaBins),dtype=np.float64)
 b = np.zeros((nEtaBins),dtype=np.float64)
 d = 3.7*np.ones((nEtaBins),dtype=np.float64)
 
-xmodel = np.stack((A,e,M,W,a,c,b),axis=-1)
+xmodel = np.stack((A,e,M,W,a,c,b,d),axis=-1)
 
 if fitMCtruth:
     chi2 = chi2LBins(xmodel, scaleSqBinned, sigmaSqBinned, hScaleSqSigmaSqBinned, etas,binCenters,good_idx)
