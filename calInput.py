@@ -71,8 +71,8 @@ def makeData(inputFile, genMass=False, smearedMass=False, mcTruth=False, isData=
             .Define('smearedgenMass', '(v1sm+v2sm).M()')
 
     if mcTruth:
-        d = d.Define('res1','mcpt1/ptvtx1')\
-            .Define('res2','mcpt2/ptvtx2')\
+        d = d.Define('res1','mcpt1/pt1')\
+            .Define('res2','mcpt2/pt2')\
 
     f = ROOT.TFile.Open('%s/bFieldMap.root' % dataDir)
     bFieldMap = f.Get('bfieldMap')
@@ -137,26 +137,32 @@ def makeMCTruthDataset(data, etas, pts, masses):
     sEta = np.sin(2*np.arctan(np.exp(-eta)))
     L = computeTrackLength(eta)
 
-    fIn = ROOT.TFile.Open("resolutionMCtruth.root")
-    bHisto = fIn.Get("b")
+    fIn = ROOT.TFile.Open("calibrationUnbinned.root")
+    gHisto = fIn.Get("g")
     dHisto = fIn.Get("d")
+    g1Histo = fIn.Get("g_1")
+    g2Histo = fIn.Get("g_2")
 
-    bterm = hist2array(bHisto)
+    gterm = hist2array(gHisto)
     dterm = hist2array(dHisto)
+    g1term = hist2array(g1Histo)
+    g2term = hist2array(g2Histo)
 
-    terms_etas = np.linspace(-2.4, 2.4, bterm.shape[0]+1, dtype='float64')
+    terms_etas = np.linspace(-2.4, 2.4, gterm.shape[0]+1, dtype='float64')
     findBin = np.digitize(eta, terms_etas)-1
-    b = bterm[findBin]
+    g = gterm[findBin]
     d = dterm[findBin]
+    g1 = g1term[findBin]
+    g2 = g2term[findBin]
 
     terms = []
-    terms.append(1./k)
-    terms.append(np.abs(sEta*k))
-    terms.append(1./np.square(k))
-    terms.append(np.square(L))
-    #terms.append(b*np.square(L)*np.reciprocal(1.+d/np.square(pt)/np.square(L)))
-    terms.append(np.square(k))
-
+    terms.append(1./k) #misalignement
+    terms.append(np.abs(sEta*k)) #energy loss
+    terms.append(1./np.square(k)) #hit position error
+    terms.append(np.square(L)) #squared track length
+    terms.append((1.+g*np.square(k)/np.square(L))*np.reciprocal(1.+d*np.square(k)/np.square(L))) # correlations resolution
+    terms.append((1.+g1*np.square(k)/np.square(L))*np.reciprocal(1.+g2*np.square(k)/np.square(L))) # correlations scale
+    
     means = []
     for term in terms:
         histoterm = np.histogramdd(datasetMCTruth.T, bins = [etas,pts,massesfull], weights=term)[0][good_idx]

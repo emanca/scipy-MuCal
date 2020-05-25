@@ -312,18 +312,14 @@ print(sigmaBinned, '+/-', sigmaErrorBinned)
 
 ###### begin parameters fit
 
-nModelParms = 8
-
-A = np.zeros((nEtaBins),dtype=np.float64)
+nModelParms = 4
+A = 0.99*np.ones((nEtaBins),dtype=np.float64)
 e = np.zeros((nEtaBins),dtype=np.float64)
-M = np.zeros((nEtaBins),dtype=np.float64)
-W = np.zeros((nEtaBins),dtype=np.float64)
+M = 2e-5*np.ones((nEtaBins),dtype=np.float64)
 a = 1e-6*np.ones((nEtaBins),dtype=np.float64)
 c = 10e-9*np.ones((nEtaBins),dtype=np.float64)
-b = np.zeros((nEtaBins),dtype=np.float64)
-d = 3.7*np.ones((nEtaBins),dtype=np.float64)
 
-xmodel = np.stack((A,e,M,W,a,c,b,d),axis=-1)
+xmodel = np.stack((A,M,a,c),axis=-1)
 
 if fitMCtruth:
     chi2 = chi2LBins(xmodel, scaleSqBinned, sigmaSqBinned, hScaleSqSigmaSqBinned, etas,binCenters,good_idx)
@@ -367,14 +363,14 @@ print("chi2/dof = %f/%d = %f" % (2*valmodel,ndof,2*valmodel/float(ndof)))
 
 errsmodel = np.sqrt(np.diag(covmodel)).reshape((nEtaBins,nModelParms))
 
-A,e,M,W,a,b,c,d = modelParsFromParVector(xmodel)
+A,e,M,a,c = modelParsFromParVector(xmodel)
 
 if fitMCtruth:
-    scaleSqModel = scaleSqFromModelParsSingleMu(A, e, M, W, etas, binCenters, good_idx)
-    sigmaSqModel = sigmaSqFromModelParsSingleMu(a, b, c, d, etas, binCenters, good_idx)
+    scaleSqModel = scaleSqFromModelParsSingleMu(A, e, M, etas, binCenters, good_idx)
+    sigmaSqModel = sigmaSqFromModelParsSingleMu(a, c, etas, binCenters, good_idx)
 else:
     scaleSqModel = scaleSqFromModelPars(A, e, M, etas, binCenters1, binCenters2, good_idx)
-    sigmaSqModel = sigmaSqFromModelPars(a, b, c, d, etas, binCenters1, binCenters2, good_idx)
+    sigmaSqModel = sigmaSqFromModelPars(a, c, etas, binCenters1, binCenters2, good_idx)
 
 
 scaleModel = np.sqrt(scaleSqModel)
@@ -418,32 +414,24 @@ etaarr = onp.array(etas.tolist())
 hA = ROOT.TH1D("A", "A", nEtaBins, etaarr)
 he = ROOT.TH1D("e", "e", nEtaBins, etaarr)
 hM = ROOT.TH1D("M", "M", nEtaBins, etaarr)
-hW = ROOT.TH1D("W", "W", nEtaBins, etaarr)
 ha = ROOT.TH1D("a", "a", nEtaBins, etaarr)
 hc = ROOT.TH1D("c", "c", nEtaBins, etaarr)
-hb = ROOT.TH1D("b", "b", nEtaBins, etaarr)
-hd = ROOT.TH1D("d", "d", nEtaBins, etaarr)
 
 hA = array2hist(A, hA, Aerr)
 he = array2hist(e, he, eerr)
 hM = array2hist(M, hM, Merr)
-hW = array2hist(W, hW, Werr)
 ha = array2hist(a, ha, aerr)
 hc = array2hist(c, hc, cerr)
-hb = array2hist(b, hb, berr)
-hd = array2hist(d, hd, derr)
 
 hA.GetYaxis().SetTitle('b field correction')
 he.GetYaxis().SetTitle('material correction')
 hM.GetYaxis().SetTitle('alignment correction')
-hW.GetYaxis().SetTitle('charge-independent unknown correction')
 ha.GetYaxis().SetTitle('material correction (resolution) a^2')
 hc.GetYaxis().SetTitle('hit position (resolution) c^2')
 
 hA.GetXaxis().SetTitle('#eta')
 he.GetXaxis().SetTitle('#eta')
 hM.GetXaxis().SetTitle('#eta')
-hW.GetXaxis().SetTitle('#eta')
 ha.GetXaxis().SetTitle('#eta')
 hc.GetXaxis().SetTitle('#eta')
 
@@ -486,17 +474,20 @@ if not fitMCtruth:
     for plot in plots:
         plot.GetXaxis().LabelsOption("v")
 
-f = ROOT.TFile("calibrationMC.root", 'recreate')
+filename = 'calibration'
+if fitMCtruth:
+    filename += 'MCtruth'
+else:
+    filename += 'MC'
+filename += '.root'
+f = ROOT.TFile(filename, 'recreate')
 f.cd()
 
 hA.Write()
 he.Write()
 hM.Write()
-hW.Write()
 ha.Write()
 hc.Write()
-hb.Write()
-hd.Write()
 
 for plot in plots:
     plot.Write()
