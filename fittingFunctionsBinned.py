@@ -277,15 +277,13 @@ def chi2SumBins(x, binScaleSq, binSigmaSq, covScaleSqSigmaSq, etas, binCenters1,
                         
 
 def modelParsFromParVector(x):
-    x = x.reshape((-1,4))
+    x = x.reshape((-1,5))
     
     A = x[...,0]
-    #e = x[...,1]
-    M = x[...,1]
-    a = x[...,2]
-    c = x[...,3]
-
-    e=np.zeros_like(A)
+    e = x[...,1]
+    M = x[...,2]
+    a = x[...,3]
+    c = x[...,4]
 
     return A,e,M,a,c
 

@@ -160,8 +160,8 @@ def makeMCTruthDataset(data, etas, pts, masses):
     terms.append(np.abs(sEta*k)) #energy loss
     terms.append(1./np.square(k)) #hit position error
     terms.append(np.square(L)) #squared track length
-    terms.append((1.+g*np.square(k)/np.square(L))*np.reciprocal(1.+d*np.square(k)/np.square(L))) # correlations resolution
-    terms.append((1.+g1*np.square(k)/np.square(L))*np.reciprocal(1.+g2*np.square(k)/np.square(L))) # correlations scale
+    terms.append((1.+np.square(g)*np.square(k))*np.reciprocal(1.+np.square(d)*np.square(k))) # correlations resolution
+    terms.append((1.+np.square(g1)*np.square(k))*np.reciprocal(1.+np.square(g2)*np.square(k))) # correlations scale
     
     means = []
     for term in terms:

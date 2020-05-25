@@ -312,14 +312,14 @@ print(sigmaBinned, '+/-', sigmaErrorBinned)
 
 ###### begin parameters fit
 
-nModelParms = 4
+nModelParms = 5
 A = 0.99*np.ones((nEtaBins),dtype=np.float64)
 e = np.zeros((nEtaBins),dtype=np.float64)
 M = 2e-5*np.ones((nEtaBins),dtype=np.float64)
 a = 1e-6*np.ones((nEtaBins),dtype=np.float64)
 c = 10e-9*np.ones((nEtaBins),dtype=np.float64)
 
-xmodel = np.stack((A,M,a,c),axis=-1)
+xmodel = np.stack((A,e,M,a,c),axis=-1)
 
 if fitMCtruth:
     chi2 = chi2LBins(xmodel, scaleSqBinned, sigmaSqBinned, hScaleSqSigmaSqBinned, etas,binCenters,good_idx)
