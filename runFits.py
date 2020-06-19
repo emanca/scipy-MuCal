@@ -28,7 +28,7 @@ import matplotlib
 matplotlib.use('agg')
 import matplotlib.pyplot as plt
 
-from fittingFunctionsBinned import scaleFromModelPars, splitTransformPars, nllBinsFromBinPars, chi2LBins, scaleSqSigmaSqFromBinsPars,scaleSqFromModelPars,sigmaSqFromModelPars,modelParsFromParVector,scaleSigmaFromModelParVector, plotsBkg, bkgModelFromBinPars, nllBinsFromBinParsRes, plotsSingleMu, scaleSqFromModelParsSingleMu, sigmaSqFromModelParsSingleMu, nllBinsFromSignalBinPars
+from fittingFunctionsBinned import scaleFromModelPars, splitTransformPars, nllBinsFromBinPars, chi2LBins, scaleSqSigmaSqFromBinsPars,scaleSqFromModelPars,sigmaSqFromModelPars,modelParsFromParVector,scaleSigmaFromModelParVector, plotsBkg, bkgModelFromBinPars, nllBinsFromBinParsRes, plotsSingleMu, scaleSqFromModelParsSingleMu, sigmaSqFromModelParsSingleMu, nllBinsFromSignalBinPars,scaleSigmaFromModelParVectorSingleMu,scaleFromModelParsSingleMu,sigmaFromModelParsSingleMu,scaleSigmaFromParsSingleMu
 from obsminimization import pmin
 import argparse
 import functools
@@ -154,13 +154,15 @@ class NLLHandler():
 parser = argparse.ArgumentParser('')
 parser.add_argument('-isJ', '--isJ', default=False, action='store_true', help='Use to run on JPsi, omit to run on Z')
 parser.add_argument('-runCalibration', '--runCalibration', default=False, action='store_true', help='Use to fit corrections, omit to fit scale parameter')
-parser.add_argument('-fitMCtruth', '--fitMCtruth', default=False, action='store_true', help='Use to fit resolution parameter from mc truth')
-
+parser.add_argument('-fitMCtruth', '--fitMCtruth', default=False, action='store_true', help='Use to fit mc truth')
+parser.add_argument('-fitData', '--fitData', default=False, action='store_true', help='Use to fit real data')
 
 args = parser.parse_args()
 isJ = args.isJ
 runCalibration = args.runCalibration
 fitMCtruth = args.fitMCtruth
+fitData = args.fitData
+
 """
 fileZ = open("calInputZMC_48etaBins_5ptBins.pkl", "rb")
 pkgZ = pickle.load(fileZ)
@@ -174,7 +176,7 @@ binCenters2Z = pkgZ['binCenters2']
 good_idxZ = pkgZ['good_idx']
 """
 if isJ:
-    fileJ = open("calInputJDATA_48etaBins_5ptBins.pkl", "rb")
+    fileJ = open("calInputJ{}_48etaBins_5ptBins.pkl".format("DATA" if fitData else "MC"), "rb")
     pkgJ = pickle.load(fileJ)
 
     datasetJ = pkgJ['dataset']
@@ -194,7 +196,6 @@ if isJ:
 
     filegen = open("calInput{}MCgen_48etaBins_5ptBins.pkl".format('J' if isJ else 'Z'), "rb")
     datasetgen = pickle.load(filegen)
-
 
 if fitMCtruth:
     fileJ = open("calInputJMCtruth_48etaBins_20ptBins.pkl", "rb")
@@ -219,13 +220,7 @@ if fitMCtruth:
     print len(total), total[0].shape,total[3].shape
     good_idx =(np.concatenate((total[0],total[2]),axis=0),np.concatenate((total[1],total[3]),axis=0))
     binCenters = np.concatenate((pkgJtruth['binCenters'],pkgZtruth['binCenters']),axis=0)
-    #dataset = datasetJ
-    #masses = pkgJtruth['edges'][-1]
-    #good_idx = pkgJtruth['good_idx']
-    #binCenters = pkgJtruth['binCenters']
-    #pts = pkgJtruth['edges'][1]
-    #etas = pkgJtruth['edges'][0]
-
+    
 
 nEtaBins = len(etas)-1
 nPtBins = len(pts)-1
@@ -235,7 +230,7 @@ print(pts)
 print(nBins)
 
 scale = np.ones((nBins,),dtype='float64')
-sigma = 6e-3*np.ones((nBins,),dtype='float64')
+sigma = 6e-5*np.ones((nBins,),dtype='float64')
 fbkg = np.zeros((nBins,),dtype='float64')
 slope = np.zeros((nBins,),dtype='float64')
 
@@ -267,10 +262,14 @@ if fitMCtruth:
     hScaleSqSigmaSqBinned, hCovScaleSqSigmaSqBinned = fh(xres,dataset,)
 
 else:
-    xscale = np.stack([scale,sigma,fbkg,slope],axis=-1)
+    if fitData:
+        xscale = np.stack([scale,sigma,fbkg,slope],axis=-1)
+        nllBinspartial = functools.partial(nllBinsFromBinPars,masses=masses)
+    else:
+        xscale = np.stack([scale,sigma],axis=-1)
+        nllBinspartial = functools.partial(nllBinsFromSignalBinPars,masses=masses)
+    
     xscale = np.zeros_like(xscale)
-    #nllBinspartial = functools.partial(nllBinsFromSignalBinPars,masses=masses)
-    nllBinspartial = functools.partial(nllBinsFromBinPars,masses=masses)
     #parallel fit for scale, sigma, fbkg, slope in bins
     xres = pmin(nllBinspartial, xscale, args=(dataset,datasetgen))
     #xres = xscale
@@ -292,7 +291,8 @@ else:
     fh = jax.jit(jax.vmap(hnll))
     hScaleSqSigmaSqBinned, hCovScaleSqSigmaSqBinned = fh(xres,dataset,datasetgen)
 
-fbkg, slope = bkgModelFromBinPars(xres)
+if fitData:
+    fbkg, slope = bkgModelFromBinPars(xres)
 
 scaleSqBinned, sigmaSqBinned = scaleSqSigmaSqFromBinsPars(xres)
 
@@ -310,16 +310,27 @@ sigmaErrorBinned = 0.5*sigmaSqErrorBinned/sigmaBinned
 print(scaleBinned, '+/-', scaleErrorBinned)
 print(sigmaBinned, '+/-', sigmaErrorBinned)
 
+#if fitMCtruth:
+    #plotsSingleMu(scaleBinned,sigmaBinned,dataset,masses)
+#else:
+    #plotsBkg(scaleBinned,sigmaBinned,fbkg,slope,dataset,datasetgen,masses,isJ,etas, binCenters1, binCenters2, good_idx)
+
+
 ###### begin parameters fit
 
-nModelParms = 5
-A = 0.99*np.ones((nEtaBins),dtype=np.float64)
+nModelParms = 10
+A = np.zeros((nEtaBins),dtype=np.float64)
 e = np.zeros((nEtaBins),dtype=np.float64)
 M = 2e-5*np.ones((nEtaBins),dtype=np.float64)
-a = 1e-6*np.ones((nEtaBins),dtype=np.float64)
+B1 = 1e-5*np.ones((nEtaBins),dtype=np.float64)
+B2 = 1e-5*np.ones((nEtaBins),dtype=np.float64)
+B3 = 1e-5*np.ones((nEtaBins),dtype=np.float64)
+a = 1e-4*np.ones((nEtaBins),dtype=np.float64)
 c = 10e-9*np.ones((nEtaBins),dtype=np.float64)
+b = np.zeros((nEtaBins),dtype=np.float64)
+d = np.ones((nEtaBins),dtype=np.float64)
 
-xmodel = np.stack((A,e,M,a,c),axis=-1)
+xmodel = np.stack((A,e,M,B1,B2,B3,a,c,b,d),axis=-1)
 
 if fitMCtruth:
     chi2 = chi2LBins(xmodel, scaleSqBinned, sigmaSqBinned, hScaleSqSigmaSqBinned, etas,binCenters,good_idx)
@@ -363,11 +374,11 @@ print("chi2/dof = %f/%d = %f" % (2*valmodel,ndof,2*valmodel/float(ndof)))
 
 errsmodel = np.sqrt(np.diag(covmodel)).reshape((nEtaBins,nModelParms))
 
-A,e,M,a,c = modelParsFromParVector(xmodel)
+A,e,M,B1,B2,B3,a,c,b,d = modelParsFromParVector(xmodel)
 
 if fitMCtruth:
-    scaleSqModel = scaleSqFromModelParsSingleMu(A, e, M, etas, binCenters, good_idx)
-    sigmaSqModel = sigmaSqFromModelParsSingleMu(a, c, etas, binCenters, good_idx)
+    scaleSqModel = scaleSqFromModelParsSingleMu(A, e, M, B1,B2,B3, etas, binCenters, good_idx)
+    sigmaSqModel = sigmaSqFromModelParsSingleMu(a, c, b, d, etas, binCenters, good_idx)
 else:
     scaleSqModel = scaleSqFromModelPars(A, e, M, etas, binCenters1, binCenters2, good_idx)
     sigmaSqModel = sigmaSqFromModelPars(a, c, etas, binCenters1, binCenters2, good_idx)
@@ -392,10 +403,6 @@ plt.pcolor(corr, cmap='jet', vmin=-1, vmax=1)
 plt.colorbar()
 plt.savefig("corrMC.pdf")
 
-#if fitMCtruth:
-    #plotsSingleMu(scaleBinned,sigmaBinned,dataset,masses)
-#else:
-    #plotsBkg(scaleBinned,sigmaBinned,fbkg,slope,dataset,datasetgen,masses,isJ,etas, binCenters1, binCenters2, good_idx)
 
 print("computing scales and errors:")
 
@@ -404,24 +411,36 @@ ndata = np.sum(dataset,axis=-1)
 Aerr = errsmodel[:,0]
 eerr = errsmodel[:,1]
 Merr = errsmodel[:,2]
-Werr = errsmodel[:,3]
-aerr = errsmodel[:,4]
-cerr = errsmodel[:,5]
-berr = errsmodel[:,6]
-derr = errsmodel[:,7]
+B1err = errsmodel[:,3]
+B2err = errsmodel[:,4]
+B3err = errsmodel[:,5]
+aerr = errsmodel[:,6]
+cerr = errsmodel[:,7]
+berr = errsmodel[:,8]
+derr = errsmodel[:,9]
 
 etaarr = onp.array(etas.tolist())
 hA = ROOT.TH1D("A", "A", nEtaBins, etaarr)
 he = ROOT.TH1D("e", "e", nEtaBins, etaarr)
 hM = ROOT.TH1D("M", "M", nEtaBins, etaarr)
+hB1 = ROOT.TH1D("B1", "B1", nEtaBins, etaarr)
+hB2 = ROOT.TH1D("B2", "B2", nEtaBins, etaarr)
+hB3 = ROOT.TH1D("B3", "B3", nEtaBins, etaarr)
 ha = ROOT.TH1D("a", "a", nEtaBins, etaarr)
 hc = ROOT.TH1D("c", "c", nEtaBins, etaarr)
+hb = ROOT.TH1D("b", "b", nEtaBins, etaarr)
+hd = ROOT.TH1D("d", "d", nEtaBins, etaarr)
 
 hA = array2hist(A, hA, Aerr)
 he = array2hist(e, he, eerr)
 hM = array2hist(M, hM, Merr)
+hB1 = array2hist(B1, hB1, B1err)
+hB2 = array2hist(B2, hB2, B2err)
+hB3 = array2hist(B3, hB3, B3err)
 ha = array2hist(a, ha, aerr)
 hc = array2hist(c, hc, cerr)
+hb = array2hist(b, hb, berr)
+hd = array2hist(d, hd, derr)
 
 hA.GetYaxis().SetTitle('b field correction')
 he.GetYaxis().SetTitle('material correction')
@@ -473,10 +492,30 @@ if not fitMCtruth:
 
     for plot in plots:
         plot.GetXaxis().LabelsOption("v")
+else:
+    scalejac,sigmajac = jax.jit(jax.jacfwd(scaleSigmaFromModelParVectorSingleMu))(xmodel.flatten(),etas, binCenters, good_idx)
+
+    scalesigmajac = np.stack((scalejac,sigmajac),axis=1)
+    scalesigmajac = np.reshape(scalesigmajac, (-1,covmodel.shape[0]))
+    covScaleSigmaModel = np.matmul(scalesigmajac,np.matmul(covmodel,scalesigmajac.T))
+    scaleSigmaErrsModel = np.sqrt(np.diag(covScaleSigmaModel))
+    scaleSigmaErrsModel = np.reshape(scaleSigmaErrsModel, (-1,2))
+
+    print(scaleModel.shape, scaleSigmaErrsModel[:,0].shape)
+    scaleplotModel = ROOT.TH1D("scaleModel", "scale", nBins, onp.linspace(0, nBins, nBins+1))
+    scaleplotModel = array2hist(scaleModel, scaleplotModel, scaleSigmaErrsModel[:,0])
+
+    sigmaplotModel = ROOT.TH1D("sigmaModel", "sigma", nBins, onp.linspace(0, nBins, nBins+1))
+    sigmaplotModel = array2hist(sigmaModel, sigmaplotModel, scaleSigmaErrsModel[:,1])
+
+    plots.append(scaleplotModel)
+    plots.append(sigmaplotModel)
 
 filename = 'calibration'
 if fitMCtruth:
     filename += 'MCtruth'
+elif fitData:
+    filename += 'DATA'
 else:
     filename += 'MC'
 filename += '.root'
@@ -486,8 +525,13 @@ f.cd()
 hA.Write()
 he.Write()
 hM.Write()
+hB1.Write()
+hB2.Write()
+hB3.Write()
 ha.Write()
 hc.Write()
+hb.Write()
+hd.Write()
 
 for plot in plots:
     plot.Write()

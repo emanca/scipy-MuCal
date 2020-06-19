@@ -140,9 +140,11 @@ def scaleSqFromModelPars(A, e, M, etas, binCenters1, binCenters2, good_idx, line
     
     coeffe1 = binCenters1[...,1]
     coeffM1 = binCenters1[...,0]
+    corr1 = binCenters1[...,5]
 
     coeffe2 = binCenters2[...,1]
     coeffM2 = binCenters2[...,0]
+    corr2 = binCenters2[...,5]
 
     # select the model parameters from the eta bins corresponding
     # to each kinematic bin
@@ -154,41 +156,39 @@ def scaleSqFromModelPars(A, e, M, etas, binCenters1, binCenters2, good_idx, line
     e2 = e[good_idx[1]]
     M2 = M[good_idx[1]]
 
-    term1 = A1-e1*coeffe1+M1*coeffM1
-    term2 = A2-e2*coeffe2-M2*coeffM2
+    term1 = (1+A1)*(1+M1*coeffM1)*corr1/(1+e1*coeffe1)
+    term2 = (1+A2)*(1-M2*coeffM2)*corr2/(1+e2*coeffe2)
     
     if linearize:
         #neglect quadratic term1*term2
         scaleSq = 1.+term1+term2
     else:
-        scaleSq = (1.+term1)*(1.+term2)
+        #scaleSq = 1./(term1*term2)
+        scaleSq = term1*term2
         
     return scaleSq
 
-def scaleSqFromModelParsSingleMu(A, e, M, etas, binCenters1, good_idx):
+def scaleSqFromModelParsSingleMu(A, e, M, B1, B2, B3, etas, binCenters1, good_idx):
     
-    coeffe1 = binCenters1[...,1]
+    coeffe1 = binCenters1[...,2]
     coeffM1 = binCenters1[...,0]
-    corr = binCenters1[...,5]
+    corr = binCenters1[...,6]
+    coeffB2 = binCenters1[...,1]
     
-    term1 = (1+A[good_idx[0]])*(1+M[good_idx[0]]*coeffM1)*corr/(1+e[good_idx[0]]*coeffe1)
+    term1 = 1+A[good_idx[0]]-e[good_idx[0]]*coeffe1+M[good_idx[0]]*coeffM1+B1[good_idx[0]]*corr+B2[good_idx[0]]*coeffB2*corr-B3[good_idx[0]]*coeffe1*corr
     scaleSq = np.square(term1)
         
     return scaleSq
 
-def sigmaSqFromModelPars(a,b,c,d, etas, binCenters1, binCenters2, good_idx):
+def sigmaSqFromModelPars(a,c,etas, binCenters1, binCenters2, good_idx):
     
     #compute sigma from physics parameters
 
     a1 = a[good_idx[0]]
-    b1 = b[good_idx[0]]
     c1 = c[good_idx[0]]
-    d1 = d[good_idx[0]]
 
     a2 = a[good_idx[1]]
-    b2 = b[good_idx[1]]
     c2 = c[good_idx[1]]
-    d2 = d[good_idx[1]]
     
     ptsq1 = binCenters1[...,2]
     Lsq1 = binCenters1[...,3]
@@ -196,24 +196,24 @@ def sigmaSqFromModelPars(a,b,c,d, etas, binCenters1, binCenters2, good_idx):
     
     ptsq2 = binCenters2[...,2]
     Lsq2 = binCenters2[...,3]
-    corr2 = binCenters2[...,4]
+    corr2 = binCenters2[...,4]  
     
-    res1 = a1*Lsq1 + c1*ptsq1*np.square(Lsq1) + corr1
-    res2 = a2*Lsq2 + c2*ptsq2*np.square(Lsq2) + corr2
+    res1 = a1*Lsq1 + c1*ptsq1*np.square(Lsq1)*corr1
+    res2 = a2*Lsq2 + c2*ptsq2*np.square(Lsq2)*corr2
 
     sigmaSq = 0.25*(res1+res2)
     
     return sigmaSq
 
-def sigmaSqFromModelParsSingleMu(a,c, etas, binCenters1, good_idx):
+def sigmaSqFromModelParsSingleMu(a,c,b,d,etas, binCenters1, good_idx):
     
     #compute sigma from physics parameters
 
-    pt2 = binCenters1[...,2]
-    L2 = binCenters1[...,3]
-    corr = binCenters1[...,4]
+    pt2 = binCenters1[...,3]
+    L2 = binCenters1[...,4]
+    k2 = binCenters1[...,5]
     
-    sigmaSq = a[good_idx[0]]*L2 + c[good_idx[0]]*pt2*np.square(L2)*corr
+    sigmaSq = a[good_idx[0]]*L2 + c[good_idx[0]]*pt2*np.square(L2) + b[good_idx[0]]*L2*np.reciprocal(1+d[good_idx[0]]*k2/L2)
 
     return sigmaSq
 
@@ -222,7 +222,7 @@ def chi2LBins(x, binScaleSq, binSigmaSq, hScaleSqSigmaSq, etas,*args):
     # return the gaussian likelihood (ie 0.5*chi2) from the scales and sigmas squared computed from the
     # physics model parameters vs the values and covariance matrix from the binned fit
     
-    A,e,M,a,c = modelParsFromParVector(x)
+    A,e,M,B1,B2,B3,a,c,b,d = modelParsFromParVector(x)
 
     if len(args)==3:
 
@@ -230,15 +230,15 @@ def chi2LBins(x, binScaleSq, binSigmaSq, hScaleSqSigmaSq, etas,*args):
         binCenters2=args[1]
         good_idx=args[2]
 
-        scaleSqModel = scaleSqFromModelPars(A,e,M,etas, binCenters1, binCenters2, good_idx, linearize=False)
+        scaleSqModel = scaleSqFromModelPars(A,e,M,B,etas, binCenters1, binCenters2, good_idx, linearize=False)
         sigmaSqModel = sigmaSqFromModelPars(a,c,etas, binCenters1, binCenters2, good_idx)
 
     else:
 
         binCenters1=args[0]
         good_idx=args[1]
-        scaleSqModel = scaleSqFromModelParsSingleMu(A,e,M,etas, binCenters1, good_idx)
-        sigmaSqModel = sigmaSqFromModelParsSingleMu(a,c,etas, binCenters1, good_idx)
+        scaleSqModel = scaleSqFromModelParsSingleMu(A,e,M,B1,B2,B3,etas, binCenters1, good_idx)
+        sigmaSqModel = sigmaSqFromModelParsSingleMu(a,c,b,d,etas, binCenters1, good_idx)
     
     scaleSqSigmaSqModel = np.stack((scaleSqModel,sigmaSqModel), axis=-1)
     scaleSqSigmaSqBinned = np.stack((binScaleSq,binSigmaSq), axis=-1)
@@ -277,33 +277,58 @@ def chi2SumBins(x, binScaleSq, binSigmaSq, covScaleSqSigmaSq, etas, binCenters1,
                         
 
 def modelParsFromParVector(x):
-    x = x.reshape((-1,5))
+    x = x.reshape((-1,10))
     
     A = x[...,0]
     e = x[...,1]
     M = x[...,2]
-    a = x[...,3]
-    c = x[...,4]
+    B1 = x[...,3]
+    B2 = x[...,4]
+    B3 = x[...,5]
+    a = x[...,6]
+    c = x[...,7]
+    b = x[...,8]
+    d = x[...,9]
 
-    return A,e,M,a,c
+    return A,e,M,B1,B2,B3,a,c,b,d
 
 def scaleSigmaFromModelParVector(x, etas, binCenters1, binCenters2, good_idx):
-    A,e,M,a,b,c,d = modelParsFromParVector(x)
-    return scaleSigmaFromPars(A, e, M, a, b, c, d, etas, binCenters1, binCenters2, good_idx)
+    A,e,M,a,c = modelParsFromParVector(x)
+    return scaleSigmaFromPars(A, e, M, a,c, etas, binCenters1, binCenters2, good_idx)
 
 def scaleFromModelPars(A, e, M, etas, binCenters1, binCenters2, good_idx):
     scaleSq = scaleSqFromModelPars(A, e, M, etas, binCenters1, binCenters2, good_idx, linearize=False)
     return np.sqrt(scaleSq)
 
-def sigmaFromModelPars(a,b,c,d, etas, binCenters1, binCenters2, good_idx):
+def sigmaFromModelPars(a,c, etas, binCenters1, binCenters2, good_idx):
     
-    sigmaSq = sigmaSqFromModelPars(a,b,c,d, etas, binCenters1, binCenters2, good_idx)
+    sigmaSq = sigmaSqFromModelPars(a,c, etas, binCenters1, binCenters2, good_idx)
     return np.sqrt(sigmaSq)
 
-def scaleSigmaFromPars(A, e, M, a, b, c, d, etas, binCenters1, binCenters2, good_idx):
+def scaleSigmaFromPars(A, e, M, a, c, etas, binCenters1, binCenters2, good_idx):
 
     scale = scaleFromModelPars(A,e,M,etas, binCenters1, binCenters2, good_idx)
-    sigma = sigmaFromModelPars(a,b,c,d, etas, binCenters1, binCenters2, good_idx)
+    sigma = sigmaFromModelPars(a,c, etas, binCenters1, binCenters2, good_idx)
+    
+    return scale,sigma
+
+def scaleSigmaFromModelParVectorSingleMu(x, etas, binCenters1, good_idx):
+    A, e, M, B1, B2, B3, a, c, b, d = modelParsFromParVector(x)
+    return scaleSigmaFromParsSingleMu(A, e, M, B1, B2, B3, a, c, b, d, etas, binCenters1, good_idx)
+
+def scaleFromModelParsSingleMu(A, e, M, B1, B2, B3, etas, binCenters1, good_idx):
+    scaleSq = scaleSqFromModelParsSingleMu(A, e, M, B1, B2, B3, etas, binCenters1, good_idx)
+    return np.sqrt(scaleSq)
+
+def sigmaFromModelParsSingleMu(a,c,b,d,etas, binCenters1, good_idx):
+    
+    sigmaSq = sigmaSqFromModelParsSingleMu(a,c,b,d,etas, binCenters1, good_idx)
+    return np.sqrt(sigmaSq)
+
+def scaleSigmaFromParsSingleMu(A, e, M, B1, B2, B3, a, c, b, d, etas, binCenters1, good_idx):
+
+    scale = scaleFromModelParsSingleMu(A, e, M, B1, B2, B3, etas, binCenters1, good_idx)
+    sigma = sigmaFromModelParsSingleMu(a,c,b,d,etas, binCenters1, good_idx)
     
     return scale,sigma
 
@@ -378,10 +403,12 @@ def nllBinsFromBinPars(x, dataset, datasetGen, masses):
     
     return nllBins(scale, sigma, fbkg, slope, dataset, datasetGen, masses)
 
-def nllBinsFromSignalBinPars(x, fbkg, slope, dataset, datasetGen, masses):
+def nllBinsFromSignalBinPars(x, dataset, datasetGen, masses):
     # For fitting with fixed background parameters
     scale, sigma = scaleSigmaFromBinPars(x)
-    
+    fbkg = np.zeros_like(scale)
+    slope = np.zeros_like(scale)
+
     return nllBins(scale, sigma, fbkg, slope, dataset, datasetGen, masses)
 
 def nllBins(scale, sigma, fbkg, slope, dataset, datasetGen, masses):

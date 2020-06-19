@@ -34,11 +34,13 @@ def makeData(inputFile, genMass=False, smearedMass=False, mcTruth=False, isData=
     if isJ:
         if mcTruth:
             cut = 'mcpt1>4.3 && mcpt2>4.3 && mcpt1<25. && mcpt2<25.'
+            #cut = 'pt1>4.3 && pt2>4.3 && pt1<25. && pt2<25.'
         else:
             cut = 'pt1>4.3 && pt2>4.3 && pt1<25. && pt2<25.'
     else:
         if mcTruth:
             cut = 'mcpt1>20.0 && mcpt2>20.0 && mcpt1<100. && mcpt2<100.'
+            #cut = 'pt1>20.0 && pt2>20.0 && pt1<100. && pt2<100.'
         else:
             cut = 'pt1>20.0 && pt2>20.0 && pt1<100. && pt2<100.'
     
@@ -138,30 +140,24 @@ def makeMCTruthDataset(data, etas, pts, masses):
     L = computeTrackLength(eta)
 
     fIn = ROOT.TFile.Open("calibrationUnbinned.root")
-    gHisto = fIn.Get("g")
-    dHisto = fIn.Get("d")
-    g1Histo = fIn.Get("g_1")
-    g2Histo = fIn.Get("g_2")
-
-    gterm = hist2array(gHisto)
+    dHisto = fIn.Get("d3")
+    
     dterm = hist2array(dHisto)
-    g1term = hist2array(g1Histo)
-    g2term = hist2array(g2Histo)
-
-    terms_etas = np.linspace(-2.4, 2.4, gterm.shape[0]+1, dtype='float64')
+    
+    terms_etas = np.linspace(-2.4, 2.4, dterm.shape[0]+1, dtype='float64')
     findBin = np.digitize(eta, terms_etas)-1
-    g = gterm[findBin]
+    
     d = dterm[findBin]
-    g1 = g1term[findBin]
-    g2 = g2term[findBin]
-
+    
     terms = []
-    terms.append(1./k) #misalignement
-    terms.append(np.abs(sEta*k)) #energy loss
+    terms.append(1./k) #misalignment
+    terms.append(k) # extra-misalignment
+    terms.append(np.abs(k)) #energy loss
     terms.append(1./np.square(k)) #hit position error
     terms.append(np.square(L)) #squared track length
-    terms.append((1.+np.square(g)*np.square(k))*np.reciprocal(1.+np.square(d)*np.square(k))) # correlations resolution
-    terms.append((1.+np.square(g1)*np.square(k))*np.reciprocal(1.+np.square(g2)*np.square(k))) # correlations scale
+    terms.append(np.square(k)) #standard d for resolution
+    terms.append(np.reciprocal(1.+np.square(d)*np.square(k))) #scale corrections
+    
     
     means = []
     for term in terms:
@@ -198,33 +194,39 @@ def makepkg(data, etas, pts, masses, good_idx, smearedMass=False):
     massesfull = np.array([masses[0],masses[-1]])
     histoden = np.histogramdd(dataset.T, bins = [etas,etas,pts,pts,massesfull])[0][good_idx]
 
-    fIn = ROOT.TFile.Open("resolutionMCtruth.root")
-    bHisto = fIn.Get("b")
+    fIn = ROOT.TFile.Open("calibrationUnbinned.root")
+    gHisto = fIn.Get("g")
     dHisto = fIn.Get("d")
-
-    bterm = hist2array(bHisto)
+    g1Histo = fIn.Get("g_1")
+    g2Histo = fIn.Get("g_2")
+    gterm = hist2array(gHisto)
     dterm = hist2array(dHisto)
+    g1term = hist2array(g1Histo)
+    g2term = hist2array(g2Histo)
 
-    terms_etas = np.linspace(-2.4, 2.4, bterm.shape[0]+1, dtype='float64')
+    terms_etas = np.linspace(-2.4, 2.4, gterm.shape[0]+1, dtype='float64')
     
     binCenters = []
     for ipt in range(2):
-        pt = dataset[ipt+2]
+        k = 1/dataset[ipt+2]
         eta = dataset[ipt]
         L = computeTrackLength(eta)
         
         sEta = np.sin(2*np.arctan(np.exp(-eta)))
         findBin = np.digitize(eta, terms_etas)-1
-        b = bterm[findBin]
+        g = gterm[findBin]
         d = dterm[findBin]
-        
-        terms = []
-        terms.append(pt)
-        terms.append(sEta/pt)
-        terms.append(np.square(pt))
-        terms.append(np.square(L))
-        terms.append(b*np.square(L)*np.reciprocal(1.+d/np.square(pt)/np.square(L)))
+        g1 = g1term[findBin]
+        g2 = g2term[findBin]
 
+        terms = []
+        terms.append(1./k) #misalignement
+        terms.append(sEta*k) #energy loss
+        terms.append(1./np.square(k)) #hit position error
+        terms.append(np.square(L)) #squared track length
+        terms.append((1.+np.square(g)*np.square(k))*np.reciprocal(1.+np.square(d)*np.square(k))) # correlations resolution
+        terms.append((1.+np.square(g1)*np.square(k))*np.reciprocal(1.+np.square(g2)*np.square(k))) # correlations scale
+        
         means = []
         for term in terms:
             histoterm = np.histogramdd(dataset.T, bins = [etas,etas,pts,pts,massesfull], weights=term)[0][good_idx]
@@ -251,7 +253,7 @@ def makepkg(data, etas, pts, masses, good_idx, smearedMass=False):
 restrictToBarrel = False
 
 if isJ:
-    inputFileMC ='%s/JpsiToMuMu_JpsiPt8_pythia8_2.root' % dataDir
+    inputFileMC ='%s/JpsiToMuMu_JpsiPt8_pythia8.root' % dataDir
     inputFileD ='%s/muonTreeData.root' % dataDir
 else:
     inputFileMC ='%s/ZJToMuMu_mWPilot.root' % dataDir
@@ -316,7 +318,7 @@ if mcTruth:
     ptsNeg = np.flip(-1*pts)
     pts = np.concatenate((ptsNeg,pts), axis=None)
 else:
-    pts = np.quantile(np.concatenate((dataMC['pt1'],dataMC['pt2']),axis=0),ptquantiles)
+    pts = np.quantile(np.concatenate((dataMC['mcpt1'],dataMC['mcpt2']),axis=0),ptquantiles)
 print(pts)
 
 if mcTruth:
