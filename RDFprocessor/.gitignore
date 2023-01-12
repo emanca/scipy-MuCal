@@ -1,0 +1,9 @@
+__init__.py
+*.png
+*.pdf
+*.root
+*.pyc
+.*.swp
+.#*
+#*#
+*~

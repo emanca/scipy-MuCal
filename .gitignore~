@@ -1,4 +1,4 @@
-dataPostVFP/
+*.root
 *.pkl
 
 # Compiled Object files

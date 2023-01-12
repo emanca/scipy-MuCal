@@ -1,3 +1,8 @@
 <lcgdict>
   <class name="applyCalibration"/>
+  <class name="reweight"/>
+  <class name="isGoodLumi"/>
+  <class name="CSvariableProducer"/>
+  <class name="genLeptonSelector"/>
+  <class name="genVProducer"/>
 </lcgdict>

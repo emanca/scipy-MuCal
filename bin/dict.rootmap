@@ -1,0 +1,14 @@
+[ libCalib.so ]
+# List of selected classes
+class CSvariableProducer
+class applyCalibration
+class genLeptonSelector
+class genVProducer
+class isGoodLumi
+class reweight
+header CSvariableProducer.hpp
+header applyCalibration.hpp
+header genLeptonSelector.hpp
+header genVProducer.hpp
+header isGoodLumi.hpp
+header reweight.hpp

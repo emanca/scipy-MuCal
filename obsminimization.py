@@ -55,10 +55,10 @@ def pmin(f, x, args = [], doParallel=True):
         x,trust_radius,val,gradmag,edm, e0 = fiter(x,trust_radius,args)
         #x,trust_radius, actual_reduction, predicted_reduction, rho, val, gradmag = vfiter(x,trust_radius,args)
         #maxidx = np.argmax(trust_radius)
-        #print(i, val, trust_radius, gradmag, np.max(trust_radius), np.max(gradmag), actual_reduction[maxidx],predicted_reduction[maxidx])
+        # print(i, val, trust_radius, gradmag, np.max(trust_radius), np.max(gradmag), actual_reduction[maxidx],predicted_reduction[maxidx])
         print("iter", i, np.sum(val), np.max(trust_radius), np.max(gradmag), np.sum(edm), np.max(edm), np.min(e0))
-        #for iparm in range(4):
-            #print(iparm, np.min(x[...,iparm]), np.max(x[...,iparm]))
+        for iparm in range(2):
+            print(iparm, np.min(x[...,iparm]), np.max(x[...,iparm]))
         #if np.all(trust_radius<tol):
         #convergence when estimated distance to minimum is below the tolerance AND hessian is positive definite for all bins
         if np.all(np.logical_and(e0>0, edm<tol)):

@@ -27,7 +27,7 @@ from fittingFunctionsBinned import computeTrackLength
 
 parser = argparse.ArgumentParser('')
 parser.add_argument('-isJ', '--isJ', default=False, action='store_true', help='Use to run on JPsi, omit to run on Z')
-parser.add_argument('-dataDir', '--dataDir', default='dataPostVFP/', type=str, help='set the directory for input data')
+parser.add_argument('-dataDir', '--dataDir', default='/scratchnvme/emanca/scipy-MuCal/dataPostVFP/', type=str, help='set the directory for input data')
 parser.add_argument('-correct', '--correct', default=False, action='store_true', help='apply corrections')
 parser.add_argument('-reweight', '--reweight', default=False, action='store_true', help='reweight mc kinematics to data')
 parser.add_argument('-pretend', '--pretend', default=False, action='store_true', help='run a fake job on a few events')
