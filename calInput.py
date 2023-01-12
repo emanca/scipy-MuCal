@@ -251,12 +251,12 @@ def makeData(p, genMass=False, isData=False, isJ = True):
                 # pt1col = "smearedpt1red"
                 # pt2col = "smearedpt2red"
                 masscol = "corrMass"
-                pt1col = "pt1corr"
-                pt2col = "pt2corr"
+                # pt1col = "pt1corr"
+                # pt2col = "pt2corr"
                 eta1col = "Muplus_eta"
                 eta2col = "Muminus_eta"
-                # pt1col = "Muplusgen_pt"
-                # pt2col = "Muminusgen_pt"
+                pt1col = "Muplusgen_pt"
+                pt2col = "Muminusgen_pt"
 
 
     axes = [axis_eta1,axis_eta2,axis_pt1,axis_pt2,axis_mass]
