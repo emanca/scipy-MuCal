@@ -4,6 +4,8 @@ import jax
 import os
 from jax import grad, hessian, jacobian, config, random
 from jax.scipy.special import erf
+from scipy.special import rel_entr
+from scipy.stats import chisquare
 config.update('jax_enable_x64', True)
 
 import ROOT
@@ -12,7 +14,6 @@ from termcolor import colored
 from scipy.optimize import minimize, SR1, LinearConstraint, check_grad, approx_fprime
 from scipy.optimize import Bounds
 import itertools
-from root_numpy import array2hist, fill_hist
 
 import matplotlib
 matplotlib.use('agg')
@@ -41,6 +42,7 @@ def kernelpdf(scale, sigma, datasetGen, masses,masses_gen):
     
     scale_ext = np.reshape(scale, scale.shape + (1,1))
     sigma_ext = valsGen*np.reshape(sigma, sigma.shape + (1,1))
+    # sigma_ext = np.reshape(sigma, sigma.shape + (1,1))
 
     h = scale_ext*valsGen
 
@@ -68,6 +70,27 @@ def kernelpdf(scale, sigma, datasetGen, masses,masses_gen):
     #print("kernelpdf debug")
     #print(np.any(np.isnan(pdfarg)), np.any(np.isnan(I)))
     pdf = pdf/np.where(pdf>0., I, 1.)
+
+    return pdf
+
+def convpdf(scale, sigma, datasetGen, masses,masses_gen, bins=1000):
+
+    valsMass = 0.5*(masses[:-1]+masses[1:])
+    valsMassGen = 0.5*(masses_gen[:-1]+masses_gen[1:])
+    massWidth = masses[1:]-masses[:-1]
+
+    valsReco = np.reshape(valsMass, len(scale.shape)*(1,) + (-1,))
+    scale_ext = np.expand_dims(scale,-1)
+    sigma_ext = np.expand_dims(sigma,-1)
+
+    x=np.linspace(0,massWidth[0]*bins,bins)
+    
+    convolve = np.vectorize(np.convolve, signature='(n),(m)->(k)')
+    resolution = np.exp((-0.5*np.square((x-scale_ext*massWidth[0]*bins/2.0)/sigma_ext)))
+    pdf =  convolve(datasetGen, resolution)
+    pdf= pdf[...,int(bins/2):int(bins/2+len(valsMass))]
+    I = np.sum(massWidth*pdf, axis=-1, keepdims=True)
+    pdf = pdf/np.where(pdf>0.,I,1.)
 
     return pdf
 
@@ -132,7 +155,31 @@ def gaussianpdf(scale, sigma, masses):
     #print pdf.shape, "pdf"
 
     return pdf
+
+def lorentzianpdf(scale, sigma, masses):
+
+    nBinsMass = masses.shape[0]
     
+    valsMass = 0.5*(masses[:-1]+masses[1:])
+    massWidth = masses[1:]-masses[:-1]
+    #massWidth = massWidth[np.newaxis,:]
+    massWidth = np.reshape(massWidth, len(scale.shape)*(1,) + (-1,))
+
+    #scale = np.reshape(scale, (-1,) + len(scale.shape)*(1,))
+    #sigma = np.reshape(sigma, (-1,) + len(sigma.shape)*(1,))
+
+    valsReco = np.reshape(valsMass, len(scale.shape)*(1,) + (-1,))
+    scale_ext = np.expand_dims(scale,-1)
+    sigma_ext = np.expand_dims(sigma,-1)
+    pdf = 2/np.pi*np.square(sigma_ext*scale_ext) / (np.square(np.square(valsReco)-np.square(scale_ext)) + np.power(valsReco,4)*np.square(sigma_ext/(scale_ext))) 
+
+    I = np.sum(massWidth*pdf, axis=-1, keepdims=True)
+    pdf = pdf/np.where(pdf>0.,I,1.)
+
+    # print(pdf.shape, "pdf")
+
+    return pdf
+
 def computeTrackLength(eta):
 
     L0=108.-4.4 #max track length in cm. tracker radius - first pixel layer
@@ -246,18 +293,19 @@ def scaleSqFromModelParsSingleMu(A, e, M, W, etas, binCenters1, good_idx):
         
     return scaleSq
 
-def sigmaSqFromModelPars(a,b,c,etas, binCenters1, binCenters2, good_idx):
-    
+# def sigmaSqFromModelPars(a,b,c,etas, binCenters1, binCenters2, good_idx, isJ=True):
+def sigmaSqFromModelPars(a,etas, binCenters1, binCenters2, good_idx, isJ=True):
+
     #compute sigma from physics parameters
 
     a1 = a[good_idx[0]]
-    b1 = b[good_idx[0]]
-    c1 = c[good_idx[0]]
+    # b1 = b[good_idx[0]]
+    # c1 = c[good_idx[0]]
     # d1 = d[good_idx[0]]
 
     a2 = a[good_idx[1]]
-    b2 = b[good_idx[1]]
-    c2 = c[good_idx[1]]
+    # b2 = b[good_idx[1]]
+    # c2 = c[good_idx[1]]
     # d2 = d[good_idx[1]]
     
     ptsq1 = binCenters1[...,2]
@@ -266,13 +314,24 @@ def sigmaSqFromModelPars(a,b,c,etas, binCenters1, binCenters2, good_idx):
     
     ptsq2 = binCenters2[...,2]
     Lsq2 = binCenters2[...,3]
-    invptsq2 = binCenters1[...,4]
+    invptsq2 = binCenters2[...,4]
     
-    # res1 = a1*Lsq1 + c1*ptsq1*np.square(Lsq1) + b1*np.square(Lsq1)*np.reciprocal(1+d1*np.reciprocal(ptsq1)/np.square(Lsq1))
-    # res2 = a2*Lsq2 + c2*ptsq2*np.square(Lsq2) + b2*np.square(Lsq2)*np.reciprocal(1+d2*np.reciprocal(ptsq2)/np.square(Lsq2))
-    res1 = a1*Lsq1 + c1*ptsq1*np.square(Lsq1) + b1*Lsq1*invptsq1
-    res2 = a2*Lsq2 + c2*ptsq2*np.square(Lsq2) + b2*Lsq2*invptsq2
+    # res1 = a1*Lsq1 + c1*ptsq1*np.square(Lsq1) + b1*Lsq1*np.reciprocal(1+invptsq1*100./Lsq1)
+    # res2 = a2*Lsq2 + c2*ptsq2*np.square(Lsq2) + b2*Lsq2*np.reciprocal(1+invptsq2*100./Lsq2)
+    # res1 = a1*Lsq1 + c1*ptsq1*np.square(Lsq1) + b1*Lsq1*invptsq1
+    # res2 = a2*Lsq2 + c2*ptsq2*np.square(Lsq2) + b2*Lsq2*invptsq2
+    # res1 = a1 + c1*ptsq1 + b1*invptsq1
+    # res2 = a2 + c2*ptsq2 + b2*invptsq2
 
+
+    res1 = a1
+    res2 = a2
+    # if isJ:
+    #     sigmaSq = 0.25*3.*3.*(res1+res2)
+    # else:
+    #     sigmaSq = 0.25*91.*91.*(res1+res2)
+    # sigmaSq = 0.25*91.*91.*(res1+res2)
+    # sigmaSq = 0.25*3.*3.*(res1+res2)
     sigmaSq = 0.25*(res1+res2)
     
     return sigmaSq
@@ -295,10 +354,13 @@ def chi2LBins(x, binScaleSq, binSigmaSq, hScaleSqSigmaSq, etas, binCenters1, bin
     # return the gaussian likelihood (ie 0.5*chi2) from the scales and sigmas squared computed from the
     # physics model parameters vs the values and covariance matrix from the binned fit
     
-    A,e,M,a,b,c = modelParsFromParVector(x)
+    # A,e,M,a,b,c = modelParsFromParVector(x)
+    A,e,M,a = modelParsFromParVector(x)
 
     scaleSqModel = scaleSqFromModelPars(A,e,M,etas, binCenters1, binCenters2, good_idx, linearize=False)
-    sigmaSqModel = sigmaSqFromModelPars(a,b,c, etas, binCenters1, binCenters2, good_idx)
+    # sigmaSqModel = sigmaSqFromModelPars(a,b,c, etas, binCenters1, binCenters2, good_idx, True)
+    sigmaSqModel = sigmaSqFromModelPars(a, etas, binCenters1, binCenters2, good_idx)
+
 
     scaleSqSigmaSqModel = np.stack((scaleSqModel,sigmaSqModel), axis=-1)
     scaleSqSigmaSqBinned = np.stack((binScaleSq,binSigmaSq), axis=-1)
@@ -341,7 +403,8 @@ def chi2LBinsSimul(x, binScaleSqJ, binSigmaSqJ, hScaleSqSigmaSqJ, etas, binCente
     scaleSqSigmaSqBinnedJ = np.stack((binScaleSqJ,binSigmaSqJ), axis=-1)
 
     scaleSqModelZ = scaleSqFromModelParsFixedMat(A,M,etas, binCenters1Z, binCenters2Z, good_idxZ, linearize=False)
-    sigmaSqModelZ = sigmaSqFromModelPars(a,b,c,etas, binCenters1Z, binCenters2Z, good_idxZ)
+    # scaleSqModelZ = scaleSqFromModelPars(A,e,M,etas, binCenters1Z, binCenters2Z, good_idxZ, linearize=False)
+    sigmaSqModelZ = sigmaSqFromModelPars(a,b,c,etas, binCenters1Z, binCenters2Z, good_idxZ, False)
 
     scaleSqSigmaSqModelZ = np.stack((scaleSqModelZ,sigmaSqModelZ), axis=-1)
     scaleSqSigmaSqBinnedZ = np.stack((binScaleSqZ,binSigmaSqZ), axis=-1)
@@ -379,7 +442,7 @@ def chi2LBinsSimul(x, binScaleSqJ, binSigmaSqJ, hScaleSqSigmaSqJ, etas, binCente
     lbinsJ = 0.5*np.matmul(diffcolTJ,np.matmul(hScaleSqSigmaSqJ, diffcolJ))
     lbinsZ = 0.5*np.matmul(diffcolTZ,np.matmul(hScaleSqSigmaSqZ, diffcolZ))
     return np.sum(lbinsJ)+np.sum(lbinsZ)
-    
+    # return np.sum(lbinsJ)
     #print(chi2bins.shape)
     
     #return chi2 
@@ -390,24 +453,23 @@ def chi2SumBins(x, binScaleSq, binSigmaSq, covScaleSqSigmaSq, etas, binCenters1,
     chi2bins = jax.vmap(chi2Binspartial(x, binScaleSq, binSigmaSq, covScaleSqSigmaSq))
     chi2 = np.sum(chi2bins)
     return chi2
-                        
 
 def modelParsFromParVector(x):
-    x = x.reshape((-1,6))
+    x = x.reshape((-1,4))
     
     A = x[...,0]
     e = x[...,1]
     M = x[...,2]
     a = x[...,3]
-    c = x[...,4]
-    b = x[...,5]
+    # c = x[...,4]
+    # b = x[...,5]
     # d = x[...,6]
 
-    return A,e,M,a,b,c
+    return A,e,M,a
 
 def scaleSigmaFromModelParVector(x, etas, binCenters1, binCenters2, good_idx):
-    A,e,M,a,b,c = modelParsFromParVector(x)
-    return scaleSigmaFromPars(A, e, M, a, b, c, etas, binCenters1, binCenters2, good_idx)
+    A,e,M,a = modelParsFromParVector(x)
+    return scaleSigmaFromPars(A, e, M, a, etas, binCenters1, binCenters2, good_idx)
 
 
 def scaleFromModelParsFixedMat(A, M, etas, binCenters1, binCenters2, good_idx):
@@ -420,16 +482,16 @@ def scaleFromModelPars(A,e, M, etas, binCenters1, binCenters2, good_idx):
     return np.sqrt(scaleSq)
     # return scaleSq
 
-def sigmaFromModelPars(a,b, c,etas, binCenters1, binCenters2, good_idx):
+def sigmaFromModelPars(a, etas, binCenters1, binCenters2, good_idx):
     
-    sigmaSq = sigmaSqFromModelPars(a,b,c, etas, binCenters1, binCenters2, good_idx)
+    sigmaSq = sigmaSqFromModelPars(a, etas, binCenters1, binCenters2, good_idx)
     return np.sqrt(sigmaSq)
     # return sigmaSq
 
-def scaleSigmaFromPars(A, e, M, a, b, c,etas, binCenters1, binCenters2, good_idx):
+def scaleSigmaFromPars(A, e, M, a, etas, binCenters1, binCenters2, good_idx):
 
     scale = scaleSqFromModelPars(A,e,M,etas, binCenters1, binCenters2, good_idx)
-    sigma = sigmaFromModelPars(a,b, c, etas, binCenters1, binCenters2, good_idx)
+    sigma = sigmaFromModelPars(a, etas, binCenters1, binCenters2, good_idx)
     
     return scale,sigma
 
@@ -477,6 +539,10 @@ def scaleSqSigmaSqFromBinsPars(x):
     return np.square(scale), np.square(sigma)
     # return scale, sigma
 
+def scaleSqSigmaSqFromBinsParsBW(x):
+    scale, sigma = scaleSigmaFromBinParsBW(x)
+    return np.square(scale), np.square(sigma)
+
 def scaleSigmaFromBinPars(x):
     #flexible on shape of input array as long as last dimension indexes the parameters within a bin
     scale = x[...,0]
@@ -488,8 +554,29 @@ def scaleSigmaFromBinPars(x):
     #against pathological phase space during minimization)
     scale = 1. + 1e-1*np.tanh(scale)
     # scale = 1.13 + 1e-4*np.tanh(scale)
-    # sigma = 6e-3*np.exp(2.*np.tanh(sigma))
+    # sigma = 6e-3*np.exp(3.*np.tanh(sigma))
     sigma = 0.01*np.exp(3.*np.tanh(sigma))
+
+    return scale, sigma
+
+def scaleSigmaFromBinParsBW(x):
+    #flexible on shape of input array as long as last dimension indexes the parameters within a bin
+    scale = x[...,0]
+    sigma = x[...,1]
+    
+    #parameter transformation for bounds
+    #(since the bounds are reached only asymptotically, the fit will not converge well
+    #if any of the parameters actually lie outside this region, these are just designed to protect
+    #against pathological phase space during minimization)
+    # scale = 1. + 1e-1*np.tanh(scale)
+    scale = 91. + 1e3*np.tanh(scale)
+    # scale = 1.13 + 1e-4*np.tanh(scale)
+    # sigma = 6e-3*np.exp(3.*np.tanh(sigma))
+    sigma = 1*np.exp(3.*np.tanh(sigma))
+    # if isJ:
+    #     sigma = 0.01*np.exp(3.*np.tanh(sigma))
+    # else:
+    #     sigma = 1*np.exp(3.*np.tanh(sigma))
     
     return scale, sigma
     
@@ -505,7 +592,7 @@ def bkgModelFromBinPars(x):
     
     return fbkg, slope
     
-def nllBinsFromBinPars(x, dataset, datasetGen, masses,masses_gen):
+def nllBinsFromBinPars(x, dataset, datasetGen, masses,masses_gen, isJ=True):
     # For fitting with floating signal and background parameters
     
     scale, sigma = scaleSigmaFromBinPars(x)
@@ -513,7 +600,13 @@ def nllBinsFromBinPars(x, dataset, datasetGen, masses,masses_gen):
     
     return nllBins(scale, sigma, fbkg, slope, dataset, datasetGen, masses,masses_gen)
 
-def nllBinsFromSignalBinPars(x, fbkg, slope, dataset, datasetGen, masses, masses_gen):
+def nllBinsFromSignalBinParsZ(x, fbkg, slope, dataset, datasetGen, masses, masses_gen, isJ=True):
+    # For fitting with fixed background parameters
+    scale, sigma = scaleSigmaFromBinPars(x)
+    
+    return nllBins(scale, sigma, fbkg, slope, dataset, datasetGen, masses, masses_gen)
+
+def nllBinsFromSignalBinParsJ(x, fbkg, slope, dataset, datasetGen, masses, masses_gen, isJ=True):
     # For fitting with fixed background parameters
     scale, sigma = scaleSigmaFromBinPars(x)
     
@@ -522,6 +615,7 @@ def nllBinsFromSignalBinPars(x, fbkg, slope, dataset, datasetGen, masses, masses
 def nllBins(scale, sigma, fbkg, slope, dataset, datasetGen, masses,masses_gen):
     sigpdf = kernelpdf(scale,sigma, datasetGen, masses,masses_gen)
     # sigpdf = gaussianpdf(scale,sigma, masses)
+    # sigpdf = convpdf(scale, sigma, datasetGen, masses,masses_gen)
     bkgpdf = exppdf(slope, masses)
     
     fbkg_ext = np.expand_dims(fbkg,-1)
@@ -536,24 +630,29 @@ def nllBins(scale, sigma, fbkg, slope, dataset, datasetGen, masses,masses_gen):
     nll += 0.5*np.square(slope)/slopesigma/slopesigma
     return nll
 
-def nllBinsFromBinParsRes(x, dataset, masses):
-    # For fitting with fixed background parameters
-    scale, sigma = scaleSigmaFromBinPars(x)
-
-    #print scale,sigma
+def nllBinsFromBinParsBW(x, dataset, datasetGen, masses,masses_gen):
+    # For fitting with floating signal and background parameters
     
-    return nllBinsResolution(scale, sigma, dataset, masses)
-
-def nllBinsResolution(scale, sigma, dataset, masses):
+    scale, sigma = scaleSigmaFromBinParsBW(x)
+    fbkg, slope = bkgModelFromBinPars(x)
     
-    pdf = gaussianpdf(scale, sigma, masses)
-    #print dataset.shape, 'dataset.shape'
-    #print scale.shape, 'scale.shape'
-    #print pdf.shape, 'pdf.shape'
-    nll = np.sum(-dataset*np.log(np.where(dataset>0., pdf, 1.)),axis=-1)
+    return nllBinsBW(scale, sigma,  fbkg, slope, dataset, datasetGen, masses,masses_gen)
 
-    #print nll.shape, 'nll.shape'
+def nllBinsBW(scale, sigma,  fbkg, slope, dataset, datasetGen, masses,masses_gen):
+
+    sigpdf = lorentzianpdf(scale, sigma, masses)
+    bkgpdf = exppdf(slope, masses)
     
+    fbkg_ext = np.expand_dims(fbkg,-1)
+    
+    pdf = (1.-fbkg_ext)*sigpdf + fbkg_ext*bkgpdf
+    
+    nll = np.sum(-datasetGen*np.log(np.where(datasetGen>0., pdf, 1.)),axis=-1)
+    # np.where(np.isfinite(nll), nll, 0.)
+    
+    #constraint on slope to keep fit well behaved when fbkg->0
+    slopesigma = 5.
+    nll += 0.5*np.square(slope)/slopesigma/slopesigma
     return nll
 
 def bin_ndarray(ndarray, new_shape, operation='sum'):
@@ -635,8 +734,7 @@ def plotsMass(dataset,datasetGen,masses,masses_gen,good_idx):
         # plt.savefig('PLOTS{}{}/plot_{}.png'.format('J' if isJ else 'Z',"Data" if isData else "MC", ieta1))
         plt.close(fig)
 
-def plotsBkg(scale,scaleerr,sigma,fbkg,slope,dataset,datasetGen,masses,masses_gen,isJ,etas,good_idx, isData):
-
+def plotsBkg(scale,scaleerr,sigma,sigmaerr, fbkg,slope,dataset,datasetGen,masses,masses_gen,isJ,etas,good_idx, isData):
 
     nBins = dataset.shape[0]
     ndata = np.sum(dataset,axis=-1)    
@@ -648,57 +746,88 @@ def plotsBkg(scale,scaleerr,sigma,fbkg,slope,dataset,datasetGen,masses,masses_ge
     
     masseslow = masses[:-1]
     
-    etas = np.linspace(-2.4, 2.4, 49, dtype='float64')
+    etas = np.linspace(-2.4, 2.4, 25, dtype='float64')
     etasC = (etas[:-1] + etas[1:]) / 2
+    # pts = np.array([20.,36., 46., 70.])
+    # pts = np.array([ 3.,3.85838168,5.2,6.25981158,7.95232633, 25.        ])
+    pts = np.linspace(2.,25.,24)
+    ptsC = (pts[:-1] + pts[1:]) / 2
     
     nsig = (1.-fbkg)*ndata
     nbkg = fbkg*ndata
     
     sigpdf = nsig[:,np.newaxis]*massWidth*kernelpdf(scale, sigma, datasetGen, masses,masses_gen)
+    # BWpdf = nsig[:,np.newaxis]*massWidth*lorentzianpdf(scale,sigma,masses)
+    # sigpdf = nsig[:,np.newaxis]*massWidth*convpdf(scale, sigma, datasetGen, masses,masses_gen)
+    
     # sigpdf = nsig[:,np.newaxis]*massWidth*gaussianpdf(scale, sigma, masses)
     bkgpdf = nbkg[:,np.newaxis]*massWidth*exppdf(slope,masses)
 
     pdf = sigpdf+bkgpdf
-
-
     for ibin in range(nBins):
+        # print(pdf[ibin,:])
     # for ibin in range(0,nBins,10):
         ieta1 = good_idx[0][ibin]
-        # if not ieta1==np.digitize(np.array(-2.35),etas): continue
         ieta2 = good_idx[1][ibin]
-        ipt1 = good_idx[1][ibin]
+        if not (ieta1==23 or ieta2==23): continue
+        ipt1 = good_idx[2][ibin]
         ipt2 = good_idx[3][ibin]
-        if not ipt1==2: continue
+        # print(round(etasC[ieta1],2),round(etasC[ieta2],2))
+        # if not ((round(etasC[ieta1],2)==0.7 or round(etasC[ieta2],2)==0.7) and (ipt1==0 or ipt2==0) ): continue
+        # if not (ieta1 in [ 6,  8, 11, 12, 13, 14, 15, 17] or ieta2 in [ 6,  8, 11, 12, 13, 14, 15, 17]): continue
+        # if not (ipt1==0 or ipt2==0): continue
+        # plot_-2.35_-2.25_2_0.png
+        # if not ipt1==2: continue
         scale_bin = scale[ibin]
+        # if not scale_bin>1.002: continue
         scaleerr_bin = scaleerr[ibin]
         sigma_bin = sigma[ibin]
+        sigmaerr_bin = sigmaerr[ibin]
+        # if not sigmaerr_bin>0.02: continue
+        # if not scale_bin>94: continue
+        # if not sigma_bin<0.0015: continue
         fbkg_bin = fbkg[ibin]
         slope_bin = slope[ibin]
         n_bin = ndata[ibin]
         n_true_bin = ntrue[ibin]
+        # print(n_bin,dataset[ibin])
+
+        th1 = np.digitize(88,masses)
+        th2 = np.digitize(93,masses)
+        th3 = np.digitize(85.,masses)
+        th4 = np.digitize(100.,masses)
+        # print(max/datasetGen[ibin,th3],max/datasetGen[ibin,th4])
 
         plt.clf()
 
         histo,masseslow = np.histogram(masseslow,100, (minR,maxR))
         masseslow = masseslow[:-1]
         redpdf = bin_ndarray(pdf[ibin,:],(100,),'mean')
+        # redBWpdf = bin_ndarray(BWpdf[ibin,:],(100,),'mean')
         redbkgpdf = bin_ndarray(bkgpdf[ibin,:],(100,),'mean')
         reddataset = bin_ndarray(dataset[ibin,:],(100,),'mean')
+        reddatasetgen = bin_ndarray(datasetGen[ibin,:],(100,),'mean')
 
 
         fig, (ax1, ax2) = plt.subplots(nrows=2)
-        ax1.errorbar(masseslow, reddataset, yerr=np.sqrt(reddataset), fmt='.')
+        ax1.errorbar(masseslow, reddataset/np.sum(reddataset), yerr=np.sqrt(reddataset)/np.sum(reddataset), fmt='.')
+        ax1.errorbar(masseslow, reddatasetgen/np.sum(reddatasetgen), yerr=np.sqrt(reddatasetgen)/np.sum(reddatasetgen), fmt='.')
         ax1.set_ylabel('number of events')
-        ax1.text(0.95, 0.98, '{}'.format("Data" if isData else "MC"))
-        ax1.text(0.95, 0.95, 'scale: {:.5f}+/-{:.6f}\n sigma: {:.3f}\n fbkg: {:.3f}\n slope: {:.3f}\n reco: {:.0f}\n ntrue: {:.0f}'\
-                        .format(scale_bin,scaleerr_bin,sigma_bin,fbkg_bin,slope_bin,n_bin,n_true_bin),
+        # ax1.text(0.95, 0.98, '{}'.format("Data" if isData else "MC"))
+        # chi2 = chisquare(datasetGen[ibin,...], BWpdf[ibin,...],ddof=2)
+        nbinsred = dataset[ibin,...].shape[0]-2-1
+        # ax1.text(0.05, 0.95, 'chi2:{:.5f}, pval:{:.5f}'.format(chi2[0]/nbinsred,chi2[1]),verticalalignment='top', horizontalalignment='left',
+        # transform=ax1.transAxes,
+        # color='black', fontsize=10)
+        ax1.text(0.95, 0.95, 'scale: {:.5f}+/-{:.6f}\n sigma: {:.3f}+/-{:.4f}\n fbkg: {:.3f}\n slope: {:.3f}\n reco: {:.0f}\n ntrue: {:.0f}'.format(scale_bin,scaleerr_bin,sigma_bin,sigmaerr_bin,fbkg_bin,slope_bin,n_bin,n_true_bin),
         verticalalignment='top', horizontalalignment='right',
         transform=ax1.transAxes,
         color='black', fontsize=10)
         ax1.set_xlim([minR, maxR])
 
-        ax1.plot(masseslow, redpdf)
-        ax1.plot(masseslow, redbkgpdf, ls='--')
+        ax1.plot(masseslow, redpdf/np.sum(reddataset))
+        # ax1.plot(masseslow, redBWpdf)
+        ax1.plot(masseslow, redbkgpdf/np.sum(reddataset), ls='--')
 
         ax2.errorbar(masseslow,reddataset/redpdf,yerr=np.sqrt(reddataset)/redpdf, fmt='.')
         ax2.set_xlabel('dimuon mass')
@@ -707,11 +836,38 @@ def plotsBkg(scale,scaleerr,sigma,fbkg,slope,dataset,datasetGen,masses,masses_ge
         ax2.set_xlim([minR, maxR])
         ax2.set_ylim([0., 2.5])
 
+        # fig, (ax1, ax2) = plt.subplots(nrows=2)
+        # ax1.errorbar(masseslow, dataset[ibin,:]/np.sum( dataset[ibin,:]), yerr=np.sqrt(dataset[ibin,:])/np.sum( dataset[ibin,:]), fmt='.')
+        # ax1.errorbar(masseslow, datasetGen[ibin,:]/np.sum( datasetGen[ibin,:]), yerr=np.sqrt(datasetGen[ibin,:])/np.sum( datasetGen[ibin,:]), fmt='.')
+        # ax1.set_ylabel('number of events')
+        # ax1.text(0.95, 0.95, 'scale: {:.5f}+/-{:.6f}\n sigma: {:.3f}+/-{:.6f}\n fbkg: {:.3f}\n slope: {:.3f}\n reco: {:.0f}\n ntrue: {:.0f}'\
+        #                 .format(scale_bin,scaleerr_bin,sigma_bin,sigmaerr_bin, fbkg_bin,slope_bin,n_bin,n_true_bin),
+        # verticalalignment='top', horizontalalignment='right',
+        # transform=ax1.transAxes,
+        # color='black', fontsize=10)
+        # ax1.plot(masseslow, pdf[ibin,:]/np.sum( dataset[ibin,:]))
+        # ax1.plot(masseslow, bkgpdf[ibin,:]/np.sum( dataset[ibin,:]), ls='--')
+                
+        # ax2.errorbar(masseslow,dataset[ibin,:]/pdf[ibin,:],yerr=np.sqrt(dataset[ibin,:])/pdf[ibin,:], fmt='.')
+        # ax2.set_xlabel('dimuon mass')
+        # ax2.set_ylabel('ratio data/pdf')
+        
+        # ax2.set_xlim([minR, maxR])
+        # ax2.set_ylim([0., 2.5])
+
         if not os.path.exists('PLOTS{}{}'.format('J' if isJ else 'Z',"Data" if isData else "MC")):
             os.system("mkdir -p " + 'PLOTS{}{}'.format('J' if isJ else 'Z',"Data" if isData else "MC"))
         plt.savefig('PLOTS{}{}/plot_{}_{}_{}_{}.png'.format('J' if isJ else 'Z',"Data" if isData else "MC", round(etasC[ieta1],2),round(etasC[ieta2],2),ipt1,ipt2))
+        print('PLOTS{}{}/plot_{}_{}_{}_{}.png'.format('J' if isJ else 'Z',"Data" if isData else "MC", round(etasC[ieta1],2),round(etasC[ieta2],2),ipt1,ipt2))
+        # print(chi2[0]/nbinsred)
+        # th1 = np.digitize(91-5,masses)
+        # th2 = np.digitize(91+4.,masses)
+        # th3 = np.digitize(80.,masses)
+        # th4 = np.digitize(100.,masses)
+        # max = np.max(datasetGen[...,th1:th2],axis=-1)
+        # print(max,max/datasetGen[...,th3],max/datasetGen[...,th4])
         # plt.savefig('PLOTS{}{}/plot_{}.png'.format('J' if isJ else 'Z',"Data" if isData else "MC", ieta1))
-        print('plot_{}{}{}{}.png'.format(ieta1,ieta2,ipt1,ipt2))
+        # print('plot_{}{}{}{}.png'.format(ieta1,ieta2,ipt1,ipt2))
         plt.close(fig)
 
 def plotsSingleMu(scale,sigma,dataset,masses):

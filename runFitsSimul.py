@@ -16,6 +16,7 @@ import jax.numpy as np
 import numpy as onp
 from jax import grad, hessian, jacobian, config
 from jax.scipy.special import erf
+from scipy.stats import chisquare
 config.update('jax_enable_x64', True)
 
 import ROOT
@@ -24,7 +25,6 @@ from termcolor import colored
 from scipy.optimize import minimize, SR1, LinearConstraint, check_grad, approx_fprime
 from scipy.optimize import Bounds
 import itertools
-from root_numpy import array2hist, hist2array, fill_hist
 
 import matplotlib.pyplot as plt
 import mplhep as hep
@@ -33,7 +33,7 @@ plt.style.use([hep.style.ROOT])
 # hep.cms.label(loc=0, year=2016, lumi=35.9, data=True)
 # hep.cms.text('Simulation')
 
-from fittingFunctionsBinned import scaleFromModelPars, scaleSqFromModelParsFixedMat, splitTransformPars, nllBinsFromBinPars, chi2LBinsSimul, scaleSqSigmaSqFromBinsPars,scaleSqFromModelPars,sigmaSqFromModelPars,modelParsFromParVector,scaleSigmaFromModelParVector, plotsBkg, bkgModelFromBinPars, nllBinsFromBinParsRes, plotsSingleMu, scaleSqFromModelParsSingleMu, sigmaSqFromModelParsSingleMu, nllBinsFromSignalBinPars, plotsMass, kernelpdf, exppdf
+from fittingFunctionsBinned import scaleFromModelPars, scaleSqFromModelParsFixedMat, splitTransformPars, nllBinsFromSignalBinParsJ,nllBinsFromSignalBinParsZ, chi2LBinsSimul, scaleSqSigmaSqFromBinsPars, scaleSqSigmaSqFromBinsPars, scaleSqFromModelPars,sigmaSqFromModelPars,modelParsFromParVector,scaleSigmaFromModelParVector, plotsBkg, bkgModelFromBinPars, plotsMass, kernelpdf, exppdf, nllBinsFromBinPars, nllBinsFromBinParsBW, scaleSqSigmaSqFromBinsParsBW, lorentzianpdf
 from obsminimization import pmin
 import argparse
 import functools
@@ -156,6 +156,27 @@ class NLLHandler():
         print(self.iiter, self.f, np.linalg.norm(self.grad))
         self.iiter += 1
 
+def array2hist(array, hist, err):
+    if type(hist).__cpp_name__=='TH3D':
+        for i in range(1,hist.GetNbinsX()+1):
+            for j in range(1,hist.GetNbinsY()+1):
+                for k in range(1,hist.GetNbinsZ()+1):
+                    hist.SetBinContent(i,j,k,array[i-1,j-1,k-1])
+                    hist.SetBinError(i,j,k,err[i-1,j-1,k-1])
+    elif type(hist).__cpp_name__=='TH2D':
+        for i in range(1,hist.GetNbinsX()+1):
+            for j in range(1,hist.GetNbinsY()+1):
+                hist.SetBinContent(i,j,array[i-1,j-1])
+                hist.SetBinError(i,j,err[i-1,j-1])
+    elif type(hist).__cpp_name__=='TH1D':
+        for i in range(1,hist.GetNbinsX()+1):
+            hist.SetBinContent(i,array[i-1])
+            hist.SetBinError(i,err[i-1])
+    else:
+        print(hist.GetName(),type(hist).__cpp_name__)
+        print("type not recognized")
+    return hist
+
 parser = argparse.ArgumentParser('')
 parser.add_argument('-isData', '--isData', default=False, action='store_true', help='data or mc reco')
 parser.add_argument('-fitCalibration', '--fitCalibration', default=False, action='store_true', help='run fit of calibration parameters after scale/sigma')
@@ -171,17 +192,17 @@ closure = args.closure
 
 closure_flag = "_corr" if closure else ""
 
-fileJ = open("calInputJ{}_48etaBins_6ptBins{}.pkl".format("DATA" if isData else "MC",closure_flag), "rb")
-fileZ = open("calInputZ{}_48etaBins_6ptBins{}.pkl".format("DATA" if isData else "MC",closure_flag), "rb")
+fileJ = open("calInputJ{}_24etaBins_1ptBins{}.pkl".format("DATA" if isData else "MC",closure_flag), "rb")
+fileZ = open("calInputZ{}_24etaBins_1ptBins{}.pkl".format("DATA" if isData else "MC",closure_flag), "rb")
 pkgJ = pickle.load(fileJ)
 datasetJ = pkgJ['dataset']
 etas = pkgJ['edges'][0]
-massesJ = pkgJ['edges'][-1]
+massesJ = pkgJ['edges'][-2]
 if fitCalibration:
     binCenters1J = pkgJ['binCenters1']
     binCenters2J = pkgJ['binCenters2']
 good_idxJ = pkgJ['good_idx']
-filegenJ = open("calInputJMCgen_48etaBins_6ptBins.pkl", "rb")
+filegenJ = open("calInputJMCgen_24etaBins_1ptBins_smeared.pkl", "rb")
 datasetgenJ = pickle.load(filegenJ)
 datasetgenJ = datasetgenJ[good_idxJ]
 print(datasetgenJ.shape, 'gen J')
@@ -189,12 +210,14 @@ masses_genJ=massesJ
 print(massesJ)
 pkgZ = pickle.load(fileZ)
 datasetZ = pkgZ['dataset']
-massesZ = pkgZ['edges'][-1]
+massesZ = pkgZ['edges'][-2]
 if fitCalibration:
     binCenters1Z = pkgZ['binCenters1']
     binCenters2Z = pkgZ['binCenters2']
+    
 good_idxZ = pkgZ['good_idx']
-filegenZ = open("calInputZMCgen_48etaBins_6ptBins.pkl", "rb")
+
+filegenZ = open("calInputZMCgen_24etaBins_1ptBins_smeared.pkl", "rb")
 datasetgenZ = pickle.load(filegenZ)
 datasetgenZ = datasetgenZ[good_idxZ]
 print(datasetgenZ.shape, 'gen Z')
@@ -211,27 +234,141 @@ scaleJ = np.ones((nBinsJ,),dtype='float64')
 sigmaJ = 6e-3*np.ones((nBinsJ,),dtype='float64')
 fbkgJ = np.zeros((nBinsJ,),dtype='float64')
 slopeJ = np.zeros((nBinsJ,),dtype='float64')
-scaleZ = np.ones((nBinsZ,),dtype='float64')
-sigmaZ = 6e-3*np.ones((nBinsZ,),dtype='float64')
+scaleZ = 91*np.ones((nBinsZ,),dtype='float64')
+sigmaZ = np.ones((nBinsZ,),dtype='float64')
 fbkgZ = np.zeros((nBinsZ,),dtype='float64')
 slopeZ = np.zeros((nBinsZ,),dtype='float64')
 
 # plotsBkg(scaleZ,scaleZ,sigmaZ,fbkgZ,slopeZ,datasetZ,datasetgenZ,massesZ,masses_genZ,False,etas, good_idxZ, isData)
 # assert(0)
 
+#preliminary fit to get rid of gamma* dominated bins
+
+nllBinspartial = functools.partial(nllBinsFromBinParsBW,masses=massesZ,masses_gen=masses_genZ)
+xscale = np.stack([scaleZ,sigmaZ,fbkgZ,slopeZ],axis=-1)
+xscale = np.zeros_like(xscale)
+#parallel fit for scale, sigma, fbkg, slope in bins
+xres = pmin(nllBinspartial, xscale, args=(datasetZ,datasetgenZ))
+# xres = xscale
+#compute covariance matrices of scale and sigma from binned fit
+def hnll(x, datasetZ,datasetgenZ):
+    #compute the hessian wrt internal fit parameters in each bin
+    hess = jax.hessian(nllBinspartial)
+    #invert to get the hessian
+    cov = np.linalg.inv(hess(x,datasetZ,datasetgenZ))
+    #compute the jacobian for scale and sigma squared wrt internal fit parameters
+    jacscalesq, jacsigmasq = jax.jacfwd(scaleSqSigmaSqFromBinsParsBW)(x)
+    jac = np.stack((jacscalesq,jacsigmasq),axis=-1)
+    #compute covariance matrix for scalesq and sigmasq
+    covscalesigmasq = np.matmul(jac.T,np.matmul(cov,jac))
+    #invert again to get the hessian
+    hscalesigmasq = np.linalg.inv(covscalesigmasq)
+    return hscalesigmasq, covscalesigmasq
+fh = jax.jit(jax.vmap(hnll))
+hScaleSqSigmaSqBinnedZ, hCovScaleSqSigmaSqBinnedZ = fh(xres,datasetZ,datasetgenZ,)
+
+scaleSqBinnedZ, sigmaSqBinnedZ = scaleSqSigmaSqFromBinsParsBW(xres)
+scaleBinnedZ = np.sqrt(scaleSqBinnedZ)
+sigmaBinnedZ = np.sqrt(sigmaSqBinnedZ)
+scaleSqSigmaSqErrorsBinnedZ = np.sqrt(np.diagonal(hCovScaleSqSigmaSqBinnedZ, axis1=-1, axis2=-2))
+scaleSqErrorBinnedZ = scaleSqSigmaSqErrorsBinnedZ[:,0]
+sigmaSqErrorBinnedZ = scaleSqSigmaSqErrorsBinnedZ[:,1]
+scaleErrorBinnedZ = 0.5*scaleSqErrorBinnedZ/scaleBinnedZ
+sigmaErrorBinnedZ = 0.5*sigmaSqErrorBinnedZ/sigmaBinnedZ
+print(scaleBinnedZ, '+/-', scaleErrorBinnedZ)
+print(sigmaBinnedZ, '+/-', sigmaErrorBinnedZ)
+
+scaleBinnedPatchedZ = onp.zeros((nEtaBins,nEtaBins,5,5),dtype='float64')
+scaleBinnedPatchedZ[good_idxZ] = scaleBinnedZ
+
+scaleBinnedBW = scaleBinnedZ
+sigmaBinnedBW = sigmaBinnedZ
+# # compute chi2
+massWidthZ = massesZ[1:]-massesZ[:-1]
+massWidthZ = massWidthZ[np.newaxis,:]
+ndataZ = np.sum(datasetgenZ,axis=-1)
+nsigZ = (1.-fbkgZ)*ndataZ
+nbkgZ = fbkgZ*ndataZ
+BWpdf = nsigZ[:,np.newaxis]*massWidthZ*lorentzianpdf(scaleBinnedBW,sigmaBinnedBW,massesZ)
+th1 = np.digitize(88,massesZ)
+th2 = np.digitize(93,massesZ)
+
+datasetgenPatchedZ = onp.zeros((nEtaBins,nEtaBins,5,5,1000),dtype='float64')
+datasetgenPatchedZ[good_idxZ] = datasetgenZ
+
+BWpdfPatched = onp.zeros((nEtaBins,nEtaBins,5,5,1000),dtype='float64')
+BWpdfPatched[good_idxZ] = BWpdf
+
+chi2 = chisquare(datasetgenZ[...,:], BWpdf[...,:],ddof=2,axis=-1)[0]
+nbinsred = datasetgenZ[...,:].shape[1]-2-1
+
+chi2Patched = chisquare(datasetgenPatchedZ[...,:], BWpdfPatched[...,:],ddof=2,axis=-1)[0]
+nbinsredPatched = datasetgenPatchedZ[...,:].shape[-1]-2-1
+
+# load smeared Z for turtle fits
+filegenZ = open("calInputZMCgen_24etaBins_1ptBins_smeared.pkl", "rb")
+datasetgenZ = pickle.load(filegenZ)
+datasetgenZ = datasetgenZ[good_idxZ]
+
+print(datasetgenZ[...,:].shape, BWpdf[...,:].shape,chi2.shape)
+good_idxZBW = np.nonzero((scaleBinnedZ>89) & (scaleBinnedZ<92) & (chi2/nbinsred<2.))
+good_idxZ = np.nonzero((scaleBinnedPatchedZ>89) & (scaleBinnedPatchedZ<92) & (chi2Patched/nbinsredPatched<2.))
+
+print(len(good_idxZBW))
+print(len(good_idxZ))
+
+datasetgenZ = datasetgenZ[good_idxZBW]
+datasetZ = datasetZ[good_idxZBW]
+nBinsZ = datasetZ.shape[0]
+nBinsgenZ = datasetgenZ.shape[0]
+if fitCalibration:
+    binCenters1Z = binCenters1Z[good_idxZBW]
+    binCenters2Z = binCenters2Z[good_idxZBW]
+
+print(nBinsZ, datasetZ.shape[1], datasetgenZ.shape[1])
+
+scaleZ = np.ones((nBinsZ,),dtype='float64')
+sigmaZ = 6e-3*np.ones((nBinsZ,),dtype='float64')
+# sigmaZ =1*np.ones((nBinsZ,),dtype='float64')
+fbkgZ = np.zeros((nBinsZ,),dtype='float64')
+slopeZ = np.zeros((nBinsZ,),dtype='float64')
+
 if not isData:
     print("start fitting J")
-    xscale = np.stack([scaleJ,sigmaJ],axis=-1)
+    # xscale = np.stack([scaleJ,sigmaJ],axis=-1)
+    # xscale = np.zeros_like(xscale)
+    # nllBinspartialJ = functools.partial(nllBinsFromSignalBinParsJ,masses=massesJ, masses_gen=masses_genJ, isJ=True)
+    # #parallel fit for scale, sigma, fbkg, slope in bins
+    # xresJ = pmin(nllBinspartialJ, xscale, args=(fbkgJ, slopeJ, datasetJ,datasetgenJ))
+    # #compute covariance matrices of scale and sigma from binned fit
+    # def hnll(x, fbkgJ, slopeJ, datasetJ,datasetgenJ):
+    #     #compute the hessian wrt internal fit parameters in each bin
+    #     hess = jax.hessian(nllBinspartialJ)
+    #     #invert to get the hessian
+    #     cov = np.linalg.inv(hess(x,fbkgJ, slopeJ,datasetJ,datasetgenJ,))
+    #     #compute the jacobian for scale and sigma squared wrt internal fit parameters
+    #     jacscalesq, jacsigmasq = jax.jacfwd(scaleSqSigmaSqFromBinsPars)(x)
+    #     jac = np.stack((jacscalesq,jacsigmasq),axis=-1)
+    #     #compute covariance matrix for scalesq and sigmasq
+    #     covscalesigmasq = np.matmul(jac.T,np.matmul(cov,jac))
+    #     #invert again to get the hessian
+    #     hscalesigmasq = np.linalg.inv(covscalesigmasq)
+    #     return hscalesigmasq, covscalesigmasq
+    # fh = jax.jit(jax.vmap(hnll))
+    # hScaleSqSigmaSqBinnedJ, hCovScaleSqSigmaSqBinnedJ = fh(xresJ,fbkgJ, slopeJ,datasetJ,datasetgenJ,)
+    
+    nllBinspartialJ = functools.partial(nllBinsFromBinPars,masses=massesJ,masses_gen=masses_genJ, isJ=True)
+    xscale = np.stack([scaleJ,sigmaJ,fbkgJ,slopeJ],axis=-1)
     xscale = np.zeros_like(xscale)
-    nllBinspartialJ = functools.partial(nllBinsFromSignalBinPars,masses=massesJ, masses_gen=masses_genJ)
     #parallel fit for scale, sigma, fbkg, slope in bins
-    xresJ = pmin(nllBinspartialJ, xscale, args=(fbkgJ, slopeJ, datasetJ,datasetgenJ))
+    xresJ = pmin(nllBinspartialJ, xscale, args=(datasetJ,datasetgenJ))
+    #xres = xscal
     #compute covariance matrices of scale and sigma from binned fit
-    def hnll(x, fbkgJ, slopeJ, datasetJ,datasetgenJ):
+    def hnll(x, datasetJ,datasetgenJ):
         #compute the hessian wrt internal fit parameters in each bin
         hess = jax.hessian(nllBinspartialJ)
         #invert to get the hessian
-        cov = np.linalg.inv(hess(x,fbkgJ, slopeJ,datasetJ,datasetgenJ,))
+        cov = np.linalg.inv(hess(x,datasetJ,datasetgenJ,))
         #compute the jacobian for scale and sigma squared wrt internal fit parameters
         jacscalesq, jacsigmasq = jax.jacfwd(scaleSqSigmaSqFromBinsPars)(x)
         jac = np.stack((jacscalesq,jacsigmasq),axis=-1)
@@ -241,12 +378,11 @@ if not isData:
         hscalesigmasq = np.linalg.inv(covscalesigmasq)
         return hscalesigmasq, covscalesigmasq
     fh = jax.jit(jax.vmap(hnll))
-    hScaleSqSigmaSqBinnedJ, hCovScaleSqSigmaSqBinnedJ = fh(xresJ,fbkgJ, slopeJ,datasetJ,datasetgenJ,)
-    
+    hScaleSqSigmaSqBinnedJ, hCovScaleSqSigmaSqBinnedJ = fh(xresJ,datasetJ,datasetgenJ,)
     print("end fitting J")
     xscale = np.stack([scaleZ,sigmaZ],axis=-1)
     xscale = np.zeros_like(xscale)
-    nllBinspartialZ = functools.partial(nllBinsFromSignalBinPars,masses=massesZ, masses_gen=masses_genZ)
+    nllBinspartialZ = functools.partial(nllBinsFromSignalBinParsZ,masses=massesZ, masses_gen=masses_genZ, isJ=False)
     #parallel fit for scale, sigma, fbkg, slope in bins
     xresZ = pmin(nllBinspartialZ, xscale, args=(fbkgZ, slopeZ, datasetZ,datasetgenZ))
     #compute covariance matrices of scale and sigma from binned fit
@@ -266,7 +402,7 @@ if not isData:
     fh = jax.jit(jax.vmap(hnll))
     hScaleSqSigmaSqBinnedZ, hCovScaleSqSigmaSqBinnedZ = fh(xresZ,fbkgZ, slopeZ,datasetZ,datasetgenZ,)
 else: 
-    nllBinspartialJ = functools.partial(nllBinsFromBinPars,masses=massesJ,masses_gen=masses_genJ)
+    nllBinspartialJ = functools.partial(nllBinsFromBinPars,masses=massesJ,masses_gen=masses_genJ, isJ=True)
     xscale = np.stack([scaleJ,sigmaJ,fbkgJ,slopeJ],axis=-1)
     xscale = np.zeros_like(xscale)
     #parallel fit for scale, sigma, fbkg, slope in bins
@@ -349,6 +485,7 @@ scaleBinnedJ = np.sqrt(scaleSqBinnedJ)
 sigmaBinnedJ = np.sqrt(sigmaSqBinnedJ)
 scaleSqSigmaSqErrorsBinnedJ = np.sqrt(np.diagonal(hCovScaleSqSigmaSqBinnedJ, axis1=-1, axis2=-2))
 scaleSqErrorBinnedJ = scaleSqSigmaSqErrorsBinnedJ[:,0]
+print('scaleSqErrorBinnedJ',scaleSqErrorBinnedJ)
 sigmaSqErrorBinnedJ = scaleSqSigmaSqErrorsBinnedJ[:,1]
 scaleErrorBinnedJ = 0.5*scaleSqErrorBinnedJ/scaleBinnedJ
 sigmaErrorBinnedJ = 0.5*sigmaSqErrorBinnedJ/sigmaBinnedJ
@@ -366,26 +503,55 @@ sigmaErrorBinnedZ = 0.5*sigmaSqErrorBinnedZ/sigmaBinnedZ
 print(scaleBinnedZ, '+/-', scaleErrorBinnedZ)
 print(sigmaBinnedZ, '+/-', sigmaErrorBinnedZ)
 
-# fileOut = "fits{}{}{}.hdf5".format("J" if isJ else "Z","DATA" if isData else "MC",closure_flag)
+fileOut = "fitsJ{}{}.hdf5".format("DATA" if isData else "MC",closure_flag)
 
-# with h5py.File(fileOut, mode="w") as f:
-#     dtype = 'float64'
-#     dset_scale = f.create_dataset('scale', scaleBinned.shape, dtype=dtype)
-#     dset_scale[...] = scaleBinned
-#     dset_scale = f.create_dataset('scaleErr', scaleErrorBinned.shape, dtype=dtype)
-#     dset_scale[...] = scaleErrorBinned
-#     dset_sigma = f.create_dataset('sigma', sigmaBinned.shape, dtype=dtype)
-#     dset_sigma[...] = sigmaBinned
-#     dset_fbkg = f.create_dataset('fbkg', fbkg.shape, dtype=dtype)
-#     dset_fbkg[...] = fbkg
-#     dset_slope = f.create_dataset('slope', slope.shape, dtype=dtype)
-#     dset_slope[...] = slope
-#     dset_good_idx = f.create_dataset('good_idx', np.asarray(good_idx).shape, dtype="int")
-#     dset_good_idx[...] = np.asarray(good_idx)
-#     dset_etas = f.create_dataset('etas', etas.shape, dtype=dtype)
-#     dset_etas[...] = etas
-#     dset_pts = f.create_dataset('pts', pts.shape, dtype=dtype)
-#     dset_pts[...] = pts
+with h5py.File(fileOut, mode="w") as f:
+    dtype = 'float64'
+    dset_scale = f.create_dataset('scale', scaleBinnedJ.shape, dtype=dtype)
+    dset_scale[...] = scaleBinnedJ
+    dset_scale = f.create_dataset('scaleErr', scaleErrorBinnedJ.shape, dtype=dtype)
+    dset_scale[...] = scaleErrorBinnedJ
+    dset_sigma = f.create_dataset('sigma', sigmaBinnedJ.shape, dtype=dtype)
+    dset_sigma[...] = sigmaBinnedJ
+    dset_sigma = f.create_dataset('sigmaErr', sigmaErrorBinnedJ.shape, dtype=dtype)
+    dset_sigma[...] = sigmaErrorBinnedJ
+    dset_scale = f.create_dataset('scaleSq', scaleSqBinnedJ.shape, dtype=dtype)
+    dset_scale[...] = scaleSqBinnedJ
+    dset_scale = f.create_dataset('scaleSqErr', scaleSqErrorBinnedJ.shape, dtype=dtype)
+    dset_scale[...] = scaleSqErrorBinnedJ
+    dset_sigma = f.create_dataset('sigmaSq', sigmaSqBinnedJ.shape, dtype=dtype)
+    dset_sigma[...] = sigmaSqBinnedJ
+    dset_sigma = f.create_dataset('sigmaSqErr', sigmaSqErrorBinnedJ.shape, dtype=dtype)
+    dset_sigma[...] = sigmaSqErrorBinnedJ
+    dset_good_idx = f.create_dataset('good_idx', np.asarray(good_idxJ).shape, dtype="int")
+    dset_good_idx[...] = np.asarray(good_idxJ)
+    dset_etas = f.create_dataset('etas', etas.shape, dtype=dtype)
+    dset_etas[...] = etas
+
+fileOut = "fitsZ{}{}.hdf5".format("DATA" if isData else "MC",closure_flag)
+
+with h5py.File(fileOut, mode="w") as f:
+    dtype = 'float64'
+    dset_scale = f.create_dataset('scale', scaleBinnedZ.shape, dtype=dtype)
+    dset_scale[...] = scaleBinnedZ
+    dset_scale = f.create_dataset('scaleErr', scaleErrorBinnedZ.shape, dtype=dtype)
+    dset_scale[...] = scaleErrorBinnedZ
+    dset_sigma = f.create_dataset('sigma', sigmaBinnedZ.shape, dtype=dtype)
+    dset_sigma[...] = sigmaBinnedZ
+    dset_scale = f.create_dataset('scaleSq', scaleSqBinnedZ.shape, dtype=dtype)
+    dset_scale[...] = scaleSqBinnedZ
+    dset_scale = f.create_dataset('scaleSqErr', scaleSqErrorBinnedZ.shape, dtype=dtype)
+    dset_scale[...] = scaleSqErrorBinnedZ
+    dset_sigma = f.create_dataset('sigmaErr', sigmaErrorBinnedZ.shape, dtype=dtype)
+    dset_sigma[...] = sigmaErrorBinnedZ
+    dset_sigma = f.create_dataset('sigmaSq', sigmaSqBinnedZ.shape, dtype=dtype)
+    dset_sigma[...] = sigmaSqBinnedZ
+    dset_sigma = f.create_dataset('sigmaSqErr', sigmaSqErrorBinnedZ.shape, dtype=dtype)
+    dset_sigma[...] = sigmaSqErrorBinnedZ
+    dset_good_idx = f.create_dataset('good_idx', np.asarray(good_idxZ).shape, dtype="int")
+    dset_good_idx[...] = np.asarray(good_idxZ)
+    dset_etas = f.create_dataset('etas', etas.shape, dtype=dtype)
+    dset_etas[...] = etas
 
 #     # rebuild pdf
 #     massWidth = masses[1:]-masses[:-1]
@@ -472,6 +638,7 @@ if fitCalibration:
     sigmaModelJ = np.sqrt(sigmaSqModelJ)
 
     scaleSqModelZ = scaleSqFromModelParsFixedMat(A, M, etas, binCenters1Z, binCenters2Z, good_idxZ)
+    # scaleSqModelZ = scaleSqFromModelPars(A, e, M, etas, binCenters1Z, binCenters2Z, good_idxZ)
     sigmaSqModelZ = sigmaSqFromModelPars(a, b, c, etas, binCenters1Z, binCenters2Z, good_idxZ)
 
     scaleModelZ = np.sqrt(scaleSqModelZ)
@@ -568,8 +735,8 @@ if fitCalibration:
     hb.Write()
     hd.Write()
 
-    correlationHist = ROOT.TH2D('correlation_matrix', 'correlation matrix', 48*nModelParms, 0., 1., 48*nModelParms, 0., 1.)
-    covarianceHist  = ROOT.TH2D('covariance_matrix', 'covariance matrix', 48*nModelParms, 0., 1., 48*nModelParms, 0., 1.)
+    correlationHist = ROOT.TH2D('correlation_matrix', 'correlation matrix', 24*nModelParms, 0., 1., 24*nModelParms, 0., 1.)
+    covarianceHist  = ROOT.TH2D('covariance_matrix', 'covariance matrix', 24*nModelParms, 0., 1., 24*nModelParms, 0., 1.)
     correlationHist.GetZaxis().SetRangeUser(-1., 1.)
 
     array2hist(corr, correlationHist)
@@ -582,9 +749,10 @@ if fitCalibration:
         plot.Write()
 
 # scale and sigma plots in pdf
+isJ = False
 
-# bins=np.linspace(1, scaleBinnedJ.shape[0]+1, scaleBinnedJ.shape[0]+1)
-# binsC = (bins[:-1] + bins[1:]) / 2
+bins=np.linspace(1, scaleBinnedZ.shape[0]+1, scaleBinnedZ.shape[0]+1)
+binsC = (bins[:-1] + bins[1:]) / 2
 # fig, ax1 = plt.subplots()
 # ax1.set_title("scale_{}".format("data" if isData else "mc"), fontsize=18)
 # hep.histplot(scaleBinnedJ,bins,yerr=scaleErrorBinnedJ,histtype = 'errorbar', ax=ax1, label = ["binned scale fit"])
@@ -600,17 +768,129 @@ if fitCalibration:
 # plt.savefig("scale_{}_{}{}.pdf".format("J" if isJ else "Z", "data" if isData else "MC",closure_flag))
 # plt.clf()
 
-# fig, ax1 = plt.subplots()
-# ax1.set_title("sigma_{}".format("data" if isData else "mc"), fontsize=18)
-# hep.histplot(sigmaBinned,bins,yerr=sigmaErrorBinned,histtype = 'errorbar', ax=ax1, label = ["binned sigma fit"])
+fig, ax1 = plt.subplots()
+ax1.set_title("sigma_{}".format("data" if isData else "mc"), fontsize=18)
+hep.histplot(sigmaBinnedZ,bins,yerr=sigmaErrorBinnedZ,histtype = 'errorbar', ax=ax1, label = ["binned sigma fit"])
 
 # if fitCalibration:
-#     ax1.plot(binsC, sigmaModel, color="red", label = "fit to model", zorder=10)
-#     ax1.fill_between(binsC, sigmaModel-scaleSigmaErrsModel[:,1], sigmaModel+scaleSigmaErrsModel[:,1], color="red", alpha=0.4)
+#     ax1.plot(binsC, sigmaModelZ, color="red", label = "fit to model", zorder=10)
+#     ax1.fill_between(binsC, sigmaModelZ-scaleSigmaErrsModelZ[:,1], sigmaModelZ+scaleSigmaErrsModelZ[:,1], color="red", alpha=0.4)
 
-# ax1.set_ylim([np.min(sigmaBinned)-0.001, np.max(sigmaBinned)+0.001])
-# ax1.legend(loc='upper right', frameon=True)
-# ax1.set_xticklabels([])
-# plt.tight_layout()
-# plt.savefig("sigma_{}_{}.png".format("J" if isJ else "Z", "data" if isData else "MC"))
-# plt.clf()
+ax1.set_ylim([np.min(sigmaBinnedZ)-0.001, np.max(sigmaBinnedZ)+0.001])
+ax1.legend(loc='upper right', frameon=True)
+ax1.set_xticklabels([])
+plt.tight_layout()
+plt.savefig("sigma_{}_{}_simul.png".format("J" if isJ else "Z", "data" if isData else "MC"))
+plt.clf()
+
+isJ = True
+
+bins=np.linspace(1, scaleBinnedJ.shape[0]+1, scaleBinnedJ.shape[0]+1)
+binsC = (bins[:-1] + bins[1:]) / 2
+
+fig, ax1 = plt.subplots()
+ax1.set_title("scale_{}".format("data" if isData else "mc"), fontsize=18)
+hep.histplot(scaleBinnedJ,bins,yerr=scaleErrorBinnedJ,histtype = 'errorbar', ax=ax1, label = ["binned scale fit"])
+
+# if fitCalibration:
+#     ax1.plot(binsC, scaleModel, color="red", label = "fit to model", zorder=10)
+#     ax1.fill_between(binsC, scaleModel-scaleSigmaErrsModel[:,0], scaleModel+scaleSigmaErrsModel[:,0], color="red", alpha=0.4)
+
+# ax1.set_ylim([np.min(scaleBinned)-0.0005, np.max(scaleBinned)+0.0005])
+ax1.legend(loc='upper right', frameon=True)
+ax1.set_xticklabels([])
+plt.tight_layout()
+plt.savefig("scale_{}_{}.pdf".format("J" if isJ else "Z", "data" if isData else "MC"))
+plt.clf()
+
+fig, ax1 = plt.subplots()
+ax1.set_title("sigma_{}".format("data" if isData else "mc"), fontsize=18)
+hep.histplot(sigmaBinnedJ,bins,yerr=sigmaErrorBinnedJ,histtype = 'errorbar', ax=ax1, label = ["binned sigma fit"])
+
+# if fitCalibration:
+#     ax1.plot(binsC, sigmaModelZ, color="red", label = "fit to model", zorder=10)
+#     ax1.fill_between(binsC, sigmaModelZ-scaleSigmaErrsModelZ[:,1], sigmaModelZ+scaleSigmaErrsModelZ[:,1], color="red", alpha=0.4)
+
+ax1.set_ylim([np.min(sigmaBinnedJ)-0.001, np.max(sigmaBinnedJ)+0.001])
+ax1.legend(loc='upper right', frameon=True)
+ax1.set_xticklabels([])
+plt.tight_layout()
+plt.savefig("sigma_{}_{}_simul.png".format("J" if isJ else "Z", "data" if isData else "MC"))
+plt.clf()
+
+# files = glob.glob('/PlotsSigma/*')
+# for f in files:
+#     os.remove(f)
+
+# # separate plots per eta bins
+# full = onp.zeros((nEtaBins,nEtaBins,6,6),dtype='float64')
+# full[good_idxJ] = sigmaBinnedJ
+# sigmaBinnedPatchedJ = full
+
+# full = onp.zeros((nEtaBins,nEtaBins,6,6),dtype='float64')
+# full[good_idxJ] = sigmaErrorBinnedJ
+# sigmaErrorBinnedPatchedJ = full
+
+# full = onp.zeros((nEtaBins,nEtaBins,5,5),dtype='float64')
+# full[good_idxZ] = sigmaBinnedZ
+# sigmaBinnedPatchedZ = full
+
+# full = onp.zeros((nEtaBins,nEtaBins,5,5),dtype='float64')
+# full[good_idxZ] = sigmaErrorBinnedZ
+# sigmaErrorBinnedPatchedZ = full
+
+# etasC = (etas[:-1] + etas[1:]) / 2
+# ptsZ = np.square(np.array([8.,25.,38, 44, 48.7, 100.]))
+# ptsJ = np.square(np.array([1.1, 2.560737, 4.02147399, 5.49946864, 7.02340517, 8.54734171, 25.]))
+# ptsZC = (ptsZ[:-1] + ptsZ[1:]) / 2
+# ptsJC = (ptsJ[:-1] + ptsJ[1:]) / 2
+# pts=np.concatenate((ptsJ,ptsZ))
+# ptsC = (pts[:-1] + pts[1:]) / 2
+
+# for ieta1 in range(len(etasC)):
+#     for ieta2 in range(len(etasC)):
+#         if not (round(etasC[ieta1],2)==-0.3 and round(etasC[ieta2],2)==-0.1): continue
+#         if np.all(sigmaBinnedPatchedJ[ieta1,ieta2,:,:]==0) and np.all(sigmaBinnedPatchedZ[ieta1,ieta2,:,:]==0):
+#             continue
+#         sigmasJ = []
+#         sigmasErrJ = []
+#         sigmasZ = []
+#         sigmasErrZ = []
+#         for ipt1J in range(len(ptsJC)):
+#             try:
+#                 sigmasJ.append(np.average(sigmaBinnedPatchedJ[ieta1,ieta2,ipt1J,...][sigmaBinnedPatchedJ[ieta1,ieta2,ipt1J,...]!=0],weights=np.reciprocal(np.square(sigmaErrorBinnedPatchedJ[ieta1,ieta2,ipt1J,...][sigmaBinnedPatchedJ[ieta1,ieta2,ipt1J,...]!=0]))))
+#             except ZeroDivisionError:
+#                 sigmasJ.append(0)
+#             try:
+#                 sigmasErrJ.append(np.sqrt(1/np.sum(np.reciprocal(np.square(sigmaErrorBinnedPatchedJ[ieta1,ieta2,ipt1J,...][sigmaBinnedPatchedJ[ieta1,ieta2,ipt1J,...]!=0])))))
+#             except ZeroDivisionError:
+#                 sigmasErrJ.append(0)
+        
+#         for ipt1Z in range(len(ptsZC)):
+#             print(round(ptsZC[ipt1Z],2), sigmaBinnedPatchedZ[ieta1,ieta2,ipt1Z,...])
+#             try:
+#                 sigmasZ.append(np.average(sigmaBinnedPatchedZ[ieta1,ieta2,ipt1Z,...][sigmaBinnedPatchedZ[ieta1,ieta2,ipt1Z,...]!=0],weights=np.reciprocal(np.square(sigmaErrorBinnedPatchedZ[ieta1,ieta2,ipt1Z,...][sigmaBinnedPatchedZ[ieta1,ieta2,ipt1Z,...]!=0]))))
+#             except ZeroDivisionError:
+#                 sigmasZ.append(0)
+#             try:
+#                 sigmasErrZ.append(np.sqrt(1/np.sum(np.reciprocal(np.square(sigmaErrorBinnedPatchedZ[ieta1,ieta2,ipt1Z,...][sigmaBinnedPatchedZ[ieta1,ieta2,ipt1Z,...]!=0])))))
+#             except ZeroDivisionError:
+#                 sigmasErrZ.append(0)
+
+#         sigmasJ = np.array(sigmasJ)
+#         sigmasErrJ = np.array(sigmasErrJ)
+#         sigmasZ = np.array(sigmasZ)
+#         sigmasErrZ = np.array(sigmasErrZ)
+#         print(sigmasZ, sigmasErrZ)
+        
+#         fig, ax1 = plt.subplots()
+#         ax1.set_title("sigma {} {}".format(round(etasC[ieta1],2),round(etasC[ieta2],2)), fontsize=18)
+#         ax1.errorbar(ptsJC,sigmasJ.ravel(),yerr=sigmasErrJ.ravel(),marker="v",fmt='v', label = "binned sigma fit J")
+#         ax1.errorbar(ptsZC,sigmasZ.ravel(),yerr=sigmasErrZ.ravel(),marker="v",fmt='v', label = "binned sigma fit Z")
+#         ax1.legend(loc='upper right', frameon=True)
+#         # ax1.set_xticklabels([])
+#         plt.tight_layout()
+#         plt.savefig("PlotsSigma/sigma_{}_{}.png".format(round(etasC[ieta1],2),round(etasC[ieta2],2)))
+#         plt.clf()
+#         # assert(0)
+

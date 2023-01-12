@@ -1,4 +1,4 @@
-#include "reweight.hpp"
+#include "interface/reweight.hpp"
 
 RNode reweight::run(RNode d)
 {

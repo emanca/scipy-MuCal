@@ -8,20 +8,26 @@ class definesZ(module):
         self.isData=isData
         pass
     def run(self,d):
-
-        self.d = d.Define("vetoMuons", "Muon_pt > 10 && Muon_isPFcand && abs(Muon_eta) < 2.4 && abs(Muon_dxy) < 0.05 && abs(Muon_dz)< 0.2")\
-                    .Define("goodMuons",  "vetoMuons && Muon_pt > 26. && Muon_mediumId == 1")\
-                    .Define('Muplus_eta','Muon_cvhbsEta[Muon_cvhbsCharge>0][0]')\
-                    .Define('Muplus_pt','Muon_cvhbsPt[Muon_cvhbsCharge>0][0]')\
-                    .Define('Muplus_phi','Muon_cvhbsPhi[Muon_cvhbsCharge>0][0]')\
-                    .Define('Muminus_eta','Muon_cvhbsEta[Muon_cvhbsCharge<0][0]')\
-                    .Define('Muminus_pt','Muon_cvhbsPt[Muon_cvhbsCharge<0][0]')\
-                    .Define('Muminus_phi','Muon_cvhbsPhi[Muon_cvhbsCharge<0][0]')\
+        self.d = d.Define('Muplus_eta','Muon_cvhbsEta[GoodMuons][Muon_cvhbsCharge>0][0]')\
+                    .Define('Muplus_pt','Muon_cvhbsPt[GoodMuons][Muon_cvhbsCharge>0][0]')\
+                    .Define('Muplus_phi','Muon_cvhbsPhi[GoodMuons][Muon_cvhbsCharge>0][0]')\
+                    .Define('Muminus_eta','Muon_cvhbsEta[GoodMuons][Muon_cvhbsCharge<0][0]')\
+                    .Define('Muminus_pt','Muon_cvhbsPt[GoodMuons][Muon_cvhbsCharge<0][0]')\
+                    .Define('Muminus_phi','Muon_cvhbsPhi[GoodMuons][Muon_cvhbsCharge<0][0]')\
+                    .Define('Muplusgen_pt','float(1./(GoodMuons_kgen[GoodMuons_genCharge>0][0]))')\
+                    .Define('Muminusgen_pt','float(1./(GoodMuons_kgen[GoodMuons_genCharge<0][0]))')\
+                    .Define('Muplusgen_eta','float((GoodMuons_genEta[GoodMuons_genCharge>0][0]))')\
+                    .Define('Muminusgen_eta','float((GoodMuons_genEta[GoodMuons_genCharge<0][0]))')\
+                    .Define("resplus", "float(((1./Muplusgen_pt)-(1./Muplus_pt))/(1./Muplusgen_pt))")\
+                    .Define("resminus", "float(((1./Muminusgen_pt)-(1./Muminus_pt))/(1./Muminusgen_pt))")\
                     .Define('v1', 'ROOT::Math::PtEtaPhiMVector(Muplus_pt,Muplus_eta,Muplus_phi,0.105658)')\
                     .Define('v2', 'ROOT::Math::PtEtaPhiMVector(Muminus_pt,Muminus_eta,Muminus_phi,0.105658)')\
                     .Define('Jpsi_pt', 'float((v1+v2).Pt())')\
                     .Define('Jpsi_rap', 'float((v1+v2).Rapidity())')\
-                    .Define('Jpsi_mass','float((v1+v2).M())')
+                    .Define('Jpsi_mass','float((v1+v2).M())')\
+                    .Define('v1gen', 'ROOT::Math::PtEtaPhiMVector(Muplusgen_pt,Muplus_eta,Muplus_phi,0.105658)')\
+                    .Define('v2gen', 'ROOT::Math::PtEtaPhiMVector(Muminusgen_pt,Muminus_eta,Muminus_phi,0.105658)')\
+                    .Define('Jpsigen_mass','float((v1gen+v2gen).M())')
         if not self.isData:
             self.d=self.d.Define("genweight_abs", "genWeight/std::abs(genWeight)")
         return self.d

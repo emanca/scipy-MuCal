@@ -1,4 +1,4 @@
-#include "genVProducer.hpp"
+#include "interface/genVProducer.hpp"
 #include "TLorentzVector.h"
 
 RNode genVProducer::run(RNode d)
@@ -32,11 +32,14 @@ RNode genVProducer::run(RNode d)
                 }
         };
 
+
         auto d1 = d.Define("GenVP4", getGenV, {"GenPart_pt", "GenPart_eta", "GenPart_phi", "GenPart_mass", "GenPart_postFSRLepIdx1", "GenPart_postFSRLepIdx2"})
                       .Define("Muplusgen_pt", getComp, {"GenPart_pt", "GenPart_postFSRLepIdx1"})
                       .Define("Muminusgen_pt", getComp, {"GenPart_pt", "GenPart_postFSRLepIdx2"})
-                      .Define("Muplusgen_eta", "GenPart_eta[GenPart_postFSRLepIdx1]")
-                      .Define("Muminusgen_eta", "GenPart_eta[GenPart_postFSRLepIdx2]")
+                      .Define("Muplusgen_eta",getComp, {"GenPart_eta", "GenPart_postFSRLepIdx1"})
+                      .Define("Muminusgen_eta", getComp, {"GenPart_eta","GenPart_postFSRLepIdx2"})
+                        .Define("Muplusgen_phi",getComp, {"GenPart_phi","GenPart_postFSRLepIdx1"})
+                      .Define("Muminusgen_phi",getComp, {"GenPart_phi","GenPart_postFSRLepIdx2"})
                       .Define("Vpt_postFSR", [this](TLorentzVector p)
                               { return float(p.Pt()); },
                               {"GenVP4"})

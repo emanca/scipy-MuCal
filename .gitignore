@@ -1,4 +1,8 @@
-dataPostVFP/
+JPsiInputData/
+*.root
+*.pdf
+*.png
+*.hdf5
 *.pkl
 
 # Compiled Object files
